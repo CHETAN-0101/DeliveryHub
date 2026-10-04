@@ -1,0 +1,72 @@
+syntax = "proto3";
+
+package deliveryhub.driver;
+
+option go_package = "github.com/deliveryhub/driver-service/internal/grpc;drivergrpc";
+
+service DriverService {
+  rpc GetDriver(GetDriverRequest) returns (GetDriverResponse);
+  rpc GetDriverLocation(GetDriverLocationRequest) returns (GetDriverLocationResponse);
+  rpc UpdateDriverStatus(UpdateDriverStatusRequest) returns (UpdateDriverStatusResponse);
+  rpc ReserveDriver(ReserveDriverRequest) returns (ReserveDriverResponse);
+  rpc ReleaseDriverReservation(ReleaseDriverReservationRequest) returns (ReleaseDriverReservationResponse);
+}
+
+message GetDriverRequest {
+  string driver_id = 1;
+}
+
+message GetDriverResponse {
+  Driver driver = 1;
+}
+
+message GetDriverLocationRequest {
+  string driver_id = 1;
+}
+
+message GetDriverLocationResponse {
+  string driver_id = 1;
+  double latitude = 2;
+  double longitude = 3;
+}
+
+message UpdateDriverStatusRequest {
+  string driver_id = 1;
+  string status = 2;
+}
+
+message UpdateDriverStatusResponse {
+  bool success = 1;
+}
+
+message ReserveDriverRequest {
+  string driver_id = 1;
+  string delivery_id = 2;
+}
+
+message ReserveDriverResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message ReleaseDriverReservationRequest {
+  string driver_id = 1;
+}
+
+message ReleaseDriverReservationResponse {
+  bool success = 1;
+}
+
+message Driver {
+  string id = 1;
+  string name = 2;
+  string phone = 3;
+  string email = 4;
+  string vehicle_type = 5;
+  string license_plate = 6;
+  string status = 7;
+  double current_latitude = 8;
+  double current_longitude = 9;
+  double rating = 10;
+  int32 total_deliveries = 11;
+}

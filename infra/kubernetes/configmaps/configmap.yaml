@@ -1,0 +1,23 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: deliveryhub-config
+  namespace: deliveryhub
+data:
+  KAFKA_BROKERS: "kafka:9092"
+  REDIS_HOST: "redis"
+  REDIS_PORT: "6379"
+  KEYCLOAK_URL: "http://keycloak:8080"
+  KEYCLOAK_REALM: "deliveryhub"
+  OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4317"
+  LOG_LEVEL: "INFO"
+  LOG_FORMAT: "json"
+  # Service URLs
+  ORDER_SERVICE_URL: "http://order-service:8081"
+  DRIVER_SERVICE_URL: "http://driver-service:8082"
+  DISPATCH_SERVICE_URL: "http://dispatch-service:8083"
+  NOTIFICATION_SERVICE_URL: "http://notification-service:8084"
+  AI_SERVICE_URL: "http://ai-service:8085"
+  # AI Config
+  AI_PROVIDER: "MOCK"
+  AI_MODEL: "gpt-4"

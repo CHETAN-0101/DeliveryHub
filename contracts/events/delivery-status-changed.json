@@ -1,0 +1,54 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "DeliveryStatusChanged",
+  "type": "object",
+  "required": ["eventId", "eventType", "version", "occurredAt", "aggregateId", "payload"],
+  "properties": {
+    "eventId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "eventType": {
+      "type": "string",
+      "enum": ["DeliveryPickedUp", "DeliveryStarted", "DeliveryCompleted"]
+    },
+    "version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "occurredAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "aggregateId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "payload": {
+      "type": "object",
+      "required": ["deliveryId", "oldStatus", "newStatus", "driverId", "changedAt"],
+      "properties": {
+        "deliveryId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "oldStatus": {
+          "type": "string",
+          "enum": ["CREATED", "ASSIGNING", "ASSIGNED", "PICKED_UP", "IN_TRANSIT", "DELIVERED", "CANCELLED"]
+        },
+        "newStatus": {
+          "type": "string",
+          "enum": ["CREATED", "ASSIGNING", "ASSIGNED", "PICKED_UP", "IN_TRANSIT", "DELIVERED", "CANCELLED"]
+        },
+        "driverId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "changedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    }
+  }
+}

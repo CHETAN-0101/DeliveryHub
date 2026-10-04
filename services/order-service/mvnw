@@ -1,0 +1,17 @@
+#!/bin/sh
+# Maven Wrapper Script
+
+MAVEN_VERSION=3.9.6
+MAVEN_BASE_URL=https://repo.maven.apache.org/maven2/org/apache/maven/apache-maven/${MAVEN_VERSION}/apache-maven-${MAVEN_VERSION}-bin.zip
+
+if [ ! -f ".mvn/wrapper/maven-wrapper.jar" ]; then
+    mkdir -p .mvn/wrapper
+    curl -sSL "${MAVEN_BASE_URL}" -o /tmp/maven.zip
+    unzip -q /tmp/maven.zip -d /tmp
+    cp /tmp/apache-maven-${MAVEN_VERSION}/lib/maven-wrapper-*.jar .mvn/wrapper/maven-wrapper.jar
+    cp /tmp/apache-maven-${MAVEN_VERSION}/bin/mvn .mvn/wrapper/mvn
+    chmod +x .mvn/wrapper/mvn
+    rm -rf /tmp/maven.zip /tmp/apache-maven-${MAVEN_VERSION}
+fi
+
+exec .mvn/wrapper/mvn "$@"

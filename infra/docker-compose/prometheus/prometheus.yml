@@ -1,0 +1,70 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    cluster: 'deliveryhub-local'
+    environment: 'development'
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: []
+
+rule_files: []
+
+scrape_configs:
+  # Prometheus self-monitoring
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # OpenTelemetry Collector metrics
+  - job_name: 'otel-collector'
+    static_configs:
+      - targets: ['otel-collector:8888']
+
+  # API Gateway
+  - job_name: 'api-gateway'
+    static_configs:
+      - targets: ['api-gateway:8080']
+    metrics_path: '/metrics'
+
+  # Order Service (Spring Boot Actuator)
+  - job_name: 'order-service'
+    static_configs:
+      - targets: ['order-service:8081']
+    metrics_path: '/actuator/prometheus'
+
+  # Driver Service
+  - job_name: 'driver-service'
+    static_configs:
+      - targets: ['driver-service:8082']
+    metrics_path: '/metrics'
+
+  # Dispatch Service
+  - job_name: 'dispatch-service'
+    static_configs:
+      - targets: ['dispatch-service:8083']
+    metrics_path: '/metrics'
+
+  # Notification Service
+  - job_name: 'notification-service'
+    static_configs:
+      - targets: ['notification-service:8084']
+    metrics_path: '/actuator/prometheus'
+
+  # AI Service
+  - job_name: 'ai-service'
+    static_configs:
+      - targets: ['ai-service:8085']
+    metrics_path: '/metrics'
+
+  # Kafka
+  - job_name: 'kafka'
+    static_configs:
+      - targets: ['kafka:9092']
+
+  # Node Exporter (if available)
+  - job_name: 'node-exporter'
+    static_configs:
+      - targets: ['host.docker.internal:9100']

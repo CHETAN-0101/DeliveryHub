@@ -1,0 +1,207 @@
+{
+  "realm": "deliveryhub",
+  "enabled": true,
+  "displayName": "DeliveryHub",
+  "displayNameHtml": "<div class=\"kc-logo-text\"><span>DeliveryHub</span></div>",
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "resetPasswordAllowed": true,
+  "editUsernameAllowed": false,
+  "bruteForceProtected": true,
+  "permanentLockout": false,
+  "maxFailureWaitSeconds": 900,
+  "minimumQuickLoginWaitSeconds": 60,
+  "waitIncrementSeconds": 60,
+  "quickLoginCheckMilliSeconds": 1000,
+  "maxDeltaTimeSeconds": 43200,
+  "failureFactor": 30,
+  "accessTokenLifespan": 3600,
+  "accessTokenLifespanForImplicitFlow": 900,
+  "ssoSessionIdleTimeout": 1800,
+  "ssoSessionMaxLifespan": 36000,
+  "offlineSessionIdleTimeout": 2592000,
+  "accessCodeLifespan": 60,
+  "accessCodeLifespanUserAction": 300,
+  "accessCodeLifespanLogin": 1800,
+  "actionTokenGeneratedByAdminLifespan": 43200,
+  "actionTokenGeneratedByUserLifespan": 300,
+  "oauth2DeviceCodeLifespan": 600,
+  "oauth2DevicePollingInterval": 5,
+  "clients": [
+    {
+      "clientId": "delivery-client",
+      "name": "DeliveryHub Client",
+      "description": "Main client for DeliveryHub services",
+      "enabled": true,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "delivery-secret",
+      "redirectUris": [
+        "http://localhost:8080/*",
+        "http://localhost:3000/*"
+      ],
+      "webOrigins": [
+        "http://localhost:8080",
+        "http://localhost:3000"
+      ],
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": true,
+      "serviceAccountsEnabled": true,
+      "authorizationServicesEnabled": true,
+      "fullScopeAllowed": true,
+      "protocolMappers": [
+        {
+          "name": "roles",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-realm-role-mapper",
+          "config": {
+            "multivalued": "true",
+            "userinfo.token.claim": "true",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "claim.name": "roles",
+            "jsonType.label": "String"
+          }
+        },
+        {
+          "name": "username",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-property-mapper",
+          "config": {
+            "userinfo.token.claim": "true",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "claim.name": "preferred_username",
+            "jsonType.label": "String",
+            "user.attribute": "username"
+          }
+        }
+      ],
+      "defaultClientScopes": [
+        "web-origins",
+        "roles",
+        "profile",
+        "email"
+      ],
+      "optionalClientScopes": [
+        "address",
+        "phone",
+        "offline_access",
+        "microprofile-jwt"
+      ]
+    }
+  ],
+  "roles": {
+    "realm": [
+      {
+        "name": "customer",
+        "description": "Customer role - can create and track deliveries",
+        "composite": false,
+        "clientRole": false,
+        "containerId": "deliveryhub"
+      },
+      {
+        "name": "driver",
+        "description": "Driver role - can accept deliveries and update location",
+        "composite": false,
+        "clientRole": false,
+        "containerId": "deliveryhub"
+      },
+      {
+        "name": "dispatcher",
+        "description": "Dispatcher role - can manage drivers and assignments",
+        "composite": false,
+        "clientRole": false,
+        "containerId": "deliveryhub"
+      },
+      {
+        "name": "admin",
+        "description": "Administrator role - full access",
+        "composite": true,
+        "composites": {
+          "realm": ["customer", "driver", "dispatcher"]
+        },
+        "clientRole": false,
+        "containerId": "deliveryhub"
+      }
+    ]
+  },
+  "groups": [],
+  "users": [
+    {
+      "username": "customer1",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "John",
+      "lastName": "Customer",
+      "email": "customer@example.com",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "password",
+          "temporary": false
+        }
+      ],
+      "realmRoles": ["customer"],
+      "requiredActions": []
+    },
+    {
+      "username": "driver1",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Jane",
+      "lastName": "Driver",
+      "email": "driver@example.com",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "password",
+          "temporary": false
+        }
+      ],
+      "realmRoles": ["driver"],
+      "requiredActions": []
+    },
+    {
+      "username": "dispatcher1",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Bob",
+      "lastName": "Dispatcher",
+      "email": "dispatcher@example.com",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "password",
+          "temporary": false
+        }
+      ],
+      "realmRoles": ["dispatcher"],
+      "requiredActions": []
+    },
+    {
+      "username": "admin1",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Admin",
+      "lastName": "User",
+      "email": "admin@example.com",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "admin123",
+          "temporary": false
+        }
+      ],
+      "realmRoles": ["admin"],
+      "requiredActions": []
+    }
+  ],
+  "defaultGroups": [],
+  "requiredActions": [],
+  "permittedRedirectUris": [
+    "http://localhost:8080/*",
+    "http://localhost:3000/*"
+  ]
+}
