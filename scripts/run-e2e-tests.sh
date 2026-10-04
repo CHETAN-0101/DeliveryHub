@@ -152,20 +152,25 @@ fi
 # 6. Driver picks up package
 log_info "6. Driver picks up package..."
 curl -s -X POST "http://localhost:8080/api/v1/deliveries/$DELIVERY_ID/pickup" \
-  -H "Authorization: Bearer $DRIVER_TOKEN" > /dev/null
-# Note: This endpoint would need to be implemented
-# For now, we'll simulate via direct status update if needed
-log_info "Package picked up (simulated)"
+  -H "Authorization: Bearer $DRIVER_TOKEN" \
+  -H "Content-Type: application/json" > /dev/null
+log_info "Package picked up"
 
 # 7. Driver starts delivery
 log_info "7. Driver starts delivery..."
-# Similar - would need endpoint
+curl -s -X POST "http://localhost:8080/api/v1/deliveries/$DELIVERY_ID/start" \
+  -H "Authorization: Bearer $DRIVER_TOKEN" \
+  -H "Content-Type: application/json" > /dev/null
+log_info "Delivery started"
 
 # 8. Driver completes delivery
 log_info "8. Driver completes delivery..."
-# Similar - would need endpoint
+curl -s -X POST "http://localhost:8080/api/v1/deliveries/$DELIVERY_ID/complete" \
+  -H "Authorization: Bearer $DRIVER_TOKEN" \
+  -H "Content-Type: application/json" > /dev/null
+log_info "Delivery completed"
 
-# 8b. Simulate completion via status check
+# Verify completion via status check
 log_info "8b. Verifying delivery completion..."
 for i in {1..15}; do
     DELIVERY_CHECK=$(curl -s -X GET "http://localhost:8080/api/v1/deliveries/$DELIVERY_ID" \
@@ -173,7 +178,7 @@ for i in {1..15}; do
     STATUS=$(echo $DELIVERY_CHECK | jq -r .status)
     
     if [ "$STATUS" == "DELIVERED" ]; then
-        log_info "Delivery completed!"
+        log_info "Delivery confirmed completed!"
         break
     fi
     if [ "$STATUS" == "CANCELLED" ]; then
