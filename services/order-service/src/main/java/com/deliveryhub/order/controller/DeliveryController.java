@@ -200,4 +200,109 @@ public class DeliveryController {
             throw new RuntimeException("Failed to compute request hash", e);
         }
     }
+
+    /**
+     * Driver picks up the package for delivery.
+     * Only the assigned driver can call this endpoint.
+     * Transitions delivery status from ASSIGNED to PICKED_UP.
+     */
+    @PostMapping(value = "/{id}/pickup", produces = MediaType.APPLICATION_JSON_VALUE)
+    @Operation(summary = "Mark delivery as picked up", description = "Driver confirms package pickup. Transitions status to PICKED_UP.")
+    @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "Delivery picked up",
+                content = @Content(schema = @Schema(implementation = DeliveryResponse.class))),
+        @ApiResponse(responseCode = "401", description = "Unauthorized"),
+        @ApiResponse(responseCode = "403", description = "Forbidden - not assigned driver"),
+        @ApiResponse(responseCode = "404", description = "Delivery not found"),
+        @ApiResponse(responseCode = "409", description = "Delivery not in ASSIGNED status")
+    })
+    @Timed(value = "delivery.pickup", description = "Time taken to mark delivery as picked up")
+    public ResponseEntity<DeliveryResponse> pickupDelivery(
+            @Parameter(description = "Delivery ID") @PathVariable UUID id,
+            @AuthenticationPrincipal Jwt jwt) {
+
+        UUID driverId = getDriverIdFromToken(jwt);
+        Delivery delivery = deliveryService.getDelivery(id);
+
+        // Verify this driver is assigned to this delivery
+        if (!driverId.equals(delivery.getDriverId())) {
+            throw new org.springframework.security.access.AccessDeniedException("Not assigned to this delivery");
+        }
+
+        Delivery updated = deliveryService.markPickedUp(id);
+        return ResponseEntity.ok(mapToResponse(updated));
+    }
+
+    /**
+     * Driver starts the delivery (begins transit to dropoff).
+     * Only the assigned driver can call this endpoint.
+     * Transitions delivery status from PICKED_UP to IN_TRANSIT.
+     */
+    @PostMapping(value = "/{id}/start", produces = MediaType.APPLICATION_JSON_VALUE)
+    @Operation(summary = "Start delivery transit", description = "Driver starts delivery transit. Transitions status to IN_TRANSIT.")
+    @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "Delivery started",
+                content = @Content(schema = @Schema(implementation = DeliveryResponse.class))),
+        @ApiResponse(responseCode = "401", description = "Unauthorized"),
+        @ApiResponse(responseCode = "403", description = "Forbidden - not assigned driver"),
+        @ApiResponse(responseCode = "404", description = "Delivery not found"),
+        @ApiResponse(responseCode = "409", description = "Delivery not in PICKED_UP status")
+    })
+    @Timed(value = "delivery.start", description = "Time taken to start delivery")
+    public ResponseEntity<DeliveryResponse> startDelivery(
+            @Parameter(description = "Delivery ID") @PathVariable UUID id,
+            @AuthenticationPrincipal Jwt jwt) {
+
+        UUID driverId = getDriverIdFromToken(jwt);
+        Delivery delivery = deliveryService.getDelivery(id);
+
+        // Verify this driver is assigned to this delivery
+        if (!driverId.equals(delivery.getDriverId())) {
+            throw new org.springframework.security.access.AccessDeniedException("Not assigned to this delivery");
+        }
+
+        Delivery updated = deliveryService.startDelivery(id);
+        return ResponseEntity.ok(mapToResponse(updated));
+    }
+
+    /**
+     * Driver completes the delivery.
+     * Only the assigned driver can call this endpoint.
+     * Transitions delivery status from IN_TRANSIT to DELIVERED.
+     */
+    @PostMapping(value = "/{id}/complete", produces = MediaType.APPLICATION_JSON_VALUE)
+    @Operation(summary = "Complete delivery", description = "Driver completes delivery. Transitions status to DELIVERED.")
+    @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "Delivery completed",
+                content = @Content(schema = @Schema(implementation = DeliveryResponse.class))),
+        @ApiResponse(responseCode = "401", description = "Unauthorized"),
+        @ApiResponse(responseCode = "403", description = "Forbidden - not assigned driver"),
+        @ApiResponse(responseCode = "404", description = "Delivery not found"),
+        @ApiResponse(responseCode = "409", description = "Delivery not in IN_TRANSIT status")
+    })
+    @Timed(value = "delivery.complete", description = "Time taken to complete delivery")
+    public ResponseEntity<DeliveryResponse> completeDelivery(
+            @Parameter(description = "Delivery ID") @PathVariable UUID id,
+            @AuthenticationPrincipal Jwt jwt) {
+
+        UUID driverId = getDriverIdFromToken(jwt);
+        Delivery delivery = deliveryService.getDelivery(id);
+
+        // Verify this driver is assigned to this delivery
+        if (!driverId.equals(delivery.getDriverId())) {
+            throw new org.springframework.security.access.AccessDeniedException("Not assigned to this delivery");
+        }
+
+        Delivery updated = deliveryService.completeDelivery(id);
+        return ResponseEntity.ok(mapToResponse(updated));
+    }
+
+    /**
+     * Extract driver ID from JWT token.
+     * Expects the 'sub' claim to contain the driver UUID.
+     */
+    private UUID getDriverIdFromToken(Jwt jwt) {
+        String sub = jwt.getSubject();
+        return UUID.fromString(sub);
+    }
 }
