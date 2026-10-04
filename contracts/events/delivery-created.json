@@ -1,0 +1,87 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "DeliveryCreated",
+  "type": "object",
+  "required": ["eventId", "eventType", "version", "occurredAt", "aggregateId", "payload"],
+  "properties": {
+    "eventId": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Unique event identifier"
+    },
+    "eventType": {
+      "type": "string",
+      "const": "DeliveryCreated",
+      "description": "Event type identifier"
+    },
+    "version": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Event schema version"
+    },
+    "occurredAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Event timestamp in ISO-8601 format"
+    },
+    "aggregateId": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Delivery aggregate ID"
+    },
+    "payload": {
+      "type": "object",
+      "required": ["deliveryId", "customerId", "pickupAddress", "pickupLatitude", "pickupLongitude", "dropoffAddress", "dropoffLatitude", "dropoffLongitude", "packageType", "packageWeight", "createdAt"],
+      "properties": {
+        "deliveryId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "customerId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "pickupAddress": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "pickupLatitude": {
+          "type": "number",
+          "minimum": -90,
+          "maximum": 90
+        },
+        "pickupLongitude": {
+          "type": "number",
+          "minimum": -180,
+          "maximum": 180
+        },
+        "dropoffAddress": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "dropoffLatitude": {
+          "type": "number",
+          "minimum": -90,
+          "maximum": 90
+        },
+        "dropoffLongitude": {
+          "type": "number",
+          "minimum": -180,
+          "maximum": 180
+        },
+        "packageType": {
+          "type": "string",
+          "maxLength": 50
+        },
+        "packageWeight": {
+          "type": "number",
+          "minimum": 0.01
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    }
+  }
+}

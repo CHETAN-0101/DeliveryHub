@@ -1,0 +1,58 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "DriverAssigned",
+  "type": "object",
+  "required": ["eventId", "eventType", "version", "occurredAt", "aggregateId", "payload"],
+  "properties": {
+    "eventId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "eventType": {
+      "type": "string",
+      "const": "DriverAssigned"
+    },
+    "version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "occurredAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "aggregateId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "payload": {
+      "type": "object",
+      "required": ["deliveryId", "driverId", "driverName", "driverPhone", "vehicleType", "licensePlate", "assignedAt"],
+      "properties": {
+        "deliveryId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "driverId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "driverName": {
+          "type": "string"
+        },
+        "driverPhone": {
+          "type": "string"
+        },
+        "vehicleType": {
+          "type": "string"
+        },
+        "licensePlate": {
+          "type": "string"
+        },
+        "assignedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,490 @@
+services:
+  # ===========================================
+  # Infrastructure Services
+  # ===========================================
+
+  # PostgreSQL for Order Service
+  postgres-order:
+    image: postgres:16-alpine
+    container_name: deliveryhub-postgres-order
+    environment:
+      POSTGRES_DB: ${ORDER_DB_NAME:-order_db}
+      POSTGRES_USER: ${ORDER_DB_USER:-order_user}
+      POSTGRES_PASSWORD: ${ORDER_DB_PASSWORD:-order_password}
+    volumes:
+      - postgres_order_data:/var/lib/postgresql/data
+      - ./init-scripts/order-init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${ORDER_DB_USER:-order_user} -d ${ORDER_DB_NAME:-order_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - deliveryhub-network
+
+  # PostgreSQL for Driver Service
+  postgres-driver:
+    image: postgres:16-alpine
+    container_name: deliveryhub-postgres-driver
+    environment:
+      POSTGRES_DB: ${DRIVER_DB_NAME:-driver_db}
+      POSTGRES_USER: ${DRIVER_DB_USER:-driver_user}
+      POSTGRES_PASSWORD: ${DRIVER_DB_PASSWORD:-driver_password}
+    volumes:
+      - postgres_driver_data:/var/lib/postgresql/data
+      - ./init-scripts/driver-init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DRIVER_DB_USER:-driver_user} -d ${DRIVER_DB_NAME:-driver_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - deliveryhub-network
+
+  # PostgreSQL for Notification Service
+  postgres-notification:
+    image: postgres:16-alpine
+    container_name: deliveryhub-postgres-notification
+    environment:
+      POSTGRES_DB: ${NOTIFICATION_DB_NAME:-notification_db}
+      POSTGRES_USER: ${NOTIFICATION_DB_USER:-notification_user}
+      POSTGRES_PASSWORD: ${NOTIFICATION_DB_PASSWORD:-notification_password}
+    volumes:
+      - postgres_notification_data:/var/lib/postgresql/data
+      - ./init-scripts/notification-init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    ports:
+      - "5434:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${NOTIFICATION_DB_USER:-notification_user} -d ${NOTIFICATION_DB_NAME:-notification_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - deliveryhub-network
+
+  # Redis for Driver Location & Caching
+  redis:
+    image: redis:7-alpine
+    container_name: deliveryhub-redis
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - deliveryhub-network
+
+  # Apache Kafka (KRaft mode - no Zookeeper)
+  kafka:
+    image: apache/kafka:3.7.0
+    container_name: deliveryhub-kafka
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_LOG_RETENTION_HOURS: 168
+      KAFKA_LOG_SEGMENT_BYTES: 1073741824
+      CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    ports:
+      - "9092:9092"
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+    networks:
+      - deliveryhub-network
+
+  # Keycloak for Authentication
+  keycloak:
+    image: quay.io/keycloak/keycloak:24.0
+    container_name: deliveryhub-keycloak
+    command: start-dev --import-realm
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN_USER:-admin}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
+      KC_HOSTNAME_STRICT: "false"
+      KC_HOSTNAME_STRICT_HTTPS: "false"
+      KC_HTTP_ENABLED: "true"
+    volumes:
+      - ./keycloak/realm-export.json:/opt/keycloak/data/import/realm-export.json:ro
+    ports:
+      - "8090:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health/ready"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+    networks:
+      - deliveryhub-network
+
+  # OpenTelemetry Collector
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.106.0
+    container_name: deliveryhub-otel-collector
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+    volumes:
+      - ./otel/otel-collector-config.yaml:/etc/otelcol-contrib/config.yaml:ro
+    ports:
+      - "4317:4317"   # OTLP gRPC
+      - "4318:4318"   # OTLP HTTP
+      - "8888:8888"   # Prometheus metrics
+      - "13133:13133" # Health check
+    depends_on:
+      - jaeger
+      - prometheus
+    networks:
+      - deliveryhub-network
+
+  # Jaeger for Distributed Tracing
+  jaeger:
+    image: jaegertracing/all-in-one:1.53
+    container_name: deliveryhub-jaeger
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+      SPAN_STORAGE_TYPE: badger
+    ports:
+      - "16686:16686" # Jaeger UI
+      - "14268:14268" # Jaeger HTTP collector
+      - "14250:14250" # Jaeger gRPC collector
+    volumes:
+      - jaeger_data:/var/lib/jaeger
+    networks:
+      - deliveryhub-network
+
+  # Prometheus for Metrics
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    container_name: deliveryhub-prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--web.console.libraries=/etc/prometheus/console_libraries"
+      - "--web.console.templates=/etc/prometheus/consoles"
+      - "--web.enable-lifecycle"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    networks:
+      - deliveryhub-network
+
+  # Grafana for Visualization
+  grafana:
+    image: grafana/grafana:10.4.0
+    container_name: deliveryhub-grafana
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_INSTALL_PLUGINS: grafana-piechart-panel
+    volumes:
+      - ./grafana/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+    networks:
+      - deliveryhub-network
+
+  # ===========================================
+  # Application Services
+  # ===========================================
+
+  # API Gateway (Go)
+  api-gateway:
+    build:
+      context: ../../services/api-gateway
+      dockerfile: Dockerfile
+    container_name: deliveryhub-api-gateway
+    environment:
+      - PORT=${GATEWAY_PORT:-8080}
+      - KEYCLOAK_URL=${KEYCLOAK_URL:-http://keycloak:8080}
+      - KEYCLOAK_REALM=${KEYCLOAK_REALM:-deliveryhub}
+      - KEYCLOAK_CLIENT_ID=${KEYCLOAK_CLIENT_ID:-delivery-client}
+      - KEYCLOAK_CLIENT_SECRET=${KEYCLOAK_CLIENT_SECRET:-delivery-secret}
+      - ORDER_SERVICE_URL=http://order-service:8081
+      - DRIVER_SERVICE_URL=http://driver-service:8082
+      - DISPATCH_SERVICE_URL=http://dispatch-service:8083
+      - NOTIFICATION_SERVICE_URL=http://notification-service:8084
+      - AI_SERVICE_URL=http://ai-service:8085
+      - RATE_LIMIT_RPS=${GATEWAY_RATE_LIMIT_RPS:-100}
+      - RATE_LIMIT_BURST=${GATEWAY_RATE_LIMIT_BURST:-200}
+      - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4317}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - LOG_FORMAT=${LOG_FORMAT:-json}
+    ports:
+      - "8080:8080"
+    depends_on:
+      keycloak:
+        condition: service_healthy
+      order-service:
+        condition: service_healthy
+      driver-service:
+        condition: service_healthy
+      dispatch-service:
+        condition: service_healthy
+      notification-service:
+        condition: service_healthy
+      ai-service:
+        condition: service_healthy
+      otel-collector:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - deliveryhub-network
+
+  # Order Service (Java/Spring Boot)
+  order-service:
+    build:
+      context: ../../services/order-service
+      dockerfile: Dockerfile
+    container_name: deliveryhub-order-service
+    environment:
+      - SERVER_PORT=${ORDER_SERVICE_PORT:-8081}
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres-order:5432/${ORDER_DB_NAME:-order_db}
+      - SPRING_DATASOURCE_USERNAME=${ORDER_DB_USER:-order_user}
+      - SPRING_DATASOURCE_PASSWORD=${ORDER_DB_PASSWORD:-order_password}
+      - SPRING_KAFKA_BOOTSTRAP_SERVERS=${KAFKA_BROKERS:-kafka:9092}
+      - SPRING_KAFKA_CONSUMER_GROUP_ID=${KAFKA_CONSUMER_GROUP_ORDER:-order-service-group}
+      - KEYCLOAK_URL=${KEYCLOAK_URL:-http://keycloak:8080}
+      - KEYCLOAK_REALM=${KEYCLOAK_REALM:-deliveryhub}
+      - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4317}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - LOG_FORMAT=${LOG_FORMAT:-json}
+    ports:
+      - "8081:8081"
+    depends_on:
+      postgres-order:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
+      otel-collector:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8081/actuator/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+    networks:
+      - deliveryhub-network
+
+  # Driver Service (Go)
+  driver-service:
+    build:
+      context: ../../services/driver-service
+      dockerfile: Dockerfile
+    container_name: deliveryhub-driver-service
+    environment:
+      - PORT=${DRIVER_SERVICE_PORT:-8082}
+      - GRPC_PORT=9092
+      - DB_HOST=${DRIVER_DB_HOST:-postgres-driver}
+      - DB_PORT=${DRIVER_DB_PORT:-5432}
+      - DB_NAME=${DRIVER_DB_NAME:-driver_db}
+      - DB_USER=${DRIVER_DB_USER:-driver_user}
+      - DB_PASSWORD=${DRIVER_DB_PASSWORD:-driver_password}
+      - REDIS_HOST=${REDIS_HOST:-redis}
+      - REDIS_PORT=${REDIS_PORT:-6379}
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-}
+      - KAFKA_BROKERS=${KAFKA_BROKERS:-kafka:9092}
+      - KAFKA_CONSUMER_GROUP=${KAFKA_CONSUMER_GROUP_DRIVER:-driver-service-group}
+      - KEYCLOAK_URL=${KEYCLOAK_URL:-http://keycloak:8080}
+      - KEYCLOAK_REALM=${KEYCLOAK_REALM:-deliveryhub}
+      - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4317}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - LOG_FORMAT=${LOG_FORMAT:-json}
+    ports:
+      - "8082:8082"
+      - "19092:9092"   # gRPC port (host:container) — was conflicting with Kafka
+    depends_on:
+      postgres-driver:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
+      otel-collector:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8082/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - deliveryhub-network
+
+  # Dispatch Service (Go)
+  dispatch-service:
+    build:
+      context: ../../services/dispatch-service
+      dockerfile: Dockerfile
+    container_name: deliveryhub-dispatch-service
+    environment:
+      - PORT=${DISPATCH_SERVICE_PORT:-8083}
+      - GRPC_PORT=9093
+      - REDIS_HOST=${REDIS_HOST:-redis}
+      - REDIS_PORT=${REDIS_PORT:-6379}
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-}
+      - KAFKA_BROKERS=${KAFKA_BROKERS:-kafka:9092}
+      - KAFKA_CONSUMER_GROUP=${KAFKA_CONSUMER_GROUP_DISPATCH:-dispatch-service-group}
+      - DRIVER_SERVICE_GRPC_ADDR=driver-service:9092
+      - ORDER_SERVICE_URL=http://order-service:8081
+      - KEYCLOAK_URL=${KEYCLOAK_URL:-http://keycloak:8080}
+      - KEYCLOAK_REALM=${KEYCLOAK_REALM:-deliveryhub}
+      - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4317}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - LOG_FORMAT=${LOG_FORMAT:-json}
+    ports:
+      - "8083:8083"
+      - "9093:9093"
+    depends_on:
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      driver-service:
+        condition: service_healthy
+      order-service:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
+      otel-collector:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8083/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - deliveryhub-network
+
+  # Notification Service (Java/Spring Boot)
+  notification-service:
+    build:
+      context: ../../services/notification-service
+      dockerfile: Dockerfile
+    container_name: deliveryhub-notification-service
+    environment:
+      - SERVER_PORT=${NOTIFICATION_SERVICE_PORT:-8084}
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres-notification:5432/${NOTIFICATION_DB_NAME:-notification_db}
+      - SPRING_DATASOURCE_USERNAME=${NOTIFICATION_DB_USER:-notification_user}
+      - SPRING_DATASOURCE_PASSWORD=${NOTIFICATION_DB_PASSWORD:-notification_password}
+      - SPRING_KAFKA_BOOTSTRAP_SERVERS=${KAFKA_BROKERS:-kafka:9092}
+      - SPRING_KAFKA_CONSUMER_GROUP_ID=${KAFKA_CONSUMER_GROUP_NOTIFICATION:-notification-service-group}
+      - KEYCLOAK_URL=${KEYCLOAK_URL:-http://keycloak:8080}
+      - KEYCLOAK_REALM=${KEYCLOAK_REALM:-deliveryhub}
+      - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4317}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - LOG_FORMAT=${LOG_FORMAT:-json}
+    ports:
+      - "8084:8084"
+    depends_on:
+      postgres-notification:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
+      otel-collector:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8084/actuator/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+    networks:
+      - deliveryhub-network
+
+  # AI Service (Go)
+  ai-service:
+    build:
+      context: ../../services/ai-service
+      dockerfile: Dockerfile
+    container_name: deliveryhub-ai-service
+    environment:
+      - PORT=${AI_SERVICE_PORT:-8085}
+      - GRPC_PORT=9095
+      - AI_PROVIDER=${AI_PROVIDER:-MOCK}
+      - AI_API_KEY=${AI_API_KEY:-}
+      - AI_BASE_URL=${AI_BASE_URL:-}
+      - AI_MODEL=${AI_MODEL:-gpt-4}
+      - KAFKA_BROKERS=${KAFKA_BROKERS:-kafka:9092}
+      - ORDER_SERVICE_URL=http://order-service:8081
+      - DRIVER_SERVICE_URL=http://driver-service:8082
+      - KEYCLOAK_URL=${KEYCLOAK_URL:-http://keycloak:8080}
+      - KEYCLOAK_REALM=${KEYCLOAK_REALM:-deliveryhub}
+      - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4317}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - LOG_FORMAT=${LOG_FORMAT:-json}
+    ports:
+      - "8085:8085"
+      - "9095:9095"
+    depends_on:
+      kafka:
+        condition: service_healthy
+      order-service:
+        condition: service_healthy
+      driver-service:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
+      otel-collector:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8085/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - deliveryhub-network
+
+# ===========================================
+# Volumes
+# ===========================================
+volumes:
+  postgres_order_data:
+  postgres_driver_data:
+  postgres_notification_data:
+  redis_data:
+  kafka_data:
+  jaeger_data:
+  prometheus_data:
+  grafana_data:
+
+# ===========================================
+# Networks
+# ===========================================
+networks:
+  deliveryhub-network:
+    driver: bridge

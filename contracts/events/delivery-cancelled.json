@@ -1,0 +1,50 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "DeliveryCancelled",
+  "type": "object",
+  "required": ["eventId", "eventType", "version", "occurredAt", "aggregateId", "payload"],
+  "properties": {
+    "eventId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "eventType": {
+      "type": "string",
+      "const": "DeliveryCancelled"
+    },
+    "version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "occurredAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "aggregateId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "payload": {
+      "type": "object",
+      "required": ["deliveryId", "customerId", "reason", "cancelledAt"],
+      "properties": {
+        "deliveryId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "customerId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "reason": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "cancelledAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    }
+  }
+}
