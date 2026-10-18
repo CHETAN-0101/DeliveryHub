@@ -152,6 +152,16 @@ generate-docs:
 	cd services/order-service && ./mvnw springdoc:generate
 	cd services/notification-service && ./mvnw springdoc:generate
 
+generate-proto:
+	@echo "Generating gRPC code from proto files..."
+	@which protoc-gen-go > /dev/null || go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
+	@which protoc-gen-go-grpc > /dev/null || go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
+	protoc --proto_path=contracts/proto \
+		--go_out=. --go_opt=paths=source_relative \
+		--go-grpc_out=. --go-grpc_opt=paths=source_relative \
+		contracts/proto/driver.proto
+	@echo "gRPC code generated successfully"
+
 seed-data:
 	@echo "Seeding development data..."
 	cd scripts && ./seed-data.sh

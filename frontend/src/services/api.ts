@@ -38,6 +38,16 @@ export const orderApi = {
 
   cancelDelivery: (id: string, data: CancelDeliveryRequest) =>
     api.post<Delivery>(`/api/v1/deliveries/${id}/cancel`, data),
+
+  // Driver actions for delivery lifecycle
+  pickupDelivery: (id: string) =>
+    api.post<Delivery>(`/api/v1/deliveries/${id}/pickup`),
+
+  startDelivery: (id: string) =>
+    api.post<Delivery>(`/api/v1/deliveries/${id}/start`),
+
+  completeDelivery: (id: string) =>
+    api.post<Delivery>(`/api/v1/deliveries/${id}/complete`),
 };
 
 // ---- Driver Service ----

@@ -12,7 +12,12 @@ data:
   OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4317"
   LOG_LEVEL: "INFO"
   LOG_FORMAT: "json"
-  # Service URLs
+  # Eureka Configuration
+  EUREKA_ENABLED: "true"
+  EUREKA_URLS: "http://admin:admin@eureka-server:8761/eureka"
+  EUREKA_USERNAME: "admin"
+  EUREKA_PASSWORD: "admin"
+  # Service URLs (fallback when Eureka is disabled)
   ORDER_SERVICE_URL: "http://order-service:8081"
   DRIVER_SERVICE_URL: "http://driver-service:8082"
   DISPATCH_SERVICE_URL: "http://dispatch-service:8083"

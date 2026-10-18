@@ -190,3 +190,21 @@ spec:
       targetPort: 8080
   selector:
     app: keycloak
+---
+# Eureka Server for Service Discovery
+apiVersion: v1
+kind: Service
+metadata:
+  name: eureka-server
+  namespace: deliveryhub
+  labels:
+    app: eureka-server
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8761
+      targetPort: 8761
+      protocol: TCP
+      name: http
+  selector:
+    app: eureka-server

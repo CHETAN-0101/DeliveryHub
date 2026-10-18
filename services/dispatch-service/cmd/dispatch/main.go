@@ -1,5 +1,15 @@
 package main
 
+// @title DeliveryHub Dispatch Service
+// @version 1.0.0
+// @description Dispatch and driver assignment service for DeliveryHub
+// @host localhost:8083
+// @BasePath /api/v1
+// @securityDefinitions.apikey Bearer
+// @in header
+// @name Authorization
+// @description JWT Authorization header using the Bearer scheme. Example: "Authorization: Bearer {token}"
+
 import (
 	"context"
 	"fmt"
@@ -15,8 +25,12 @@ import (
 	"github.com/deliveryhub/dispatch-service/internal/service"
 	"github.com/deliveryhub/dispatch-service/pkg/kafka"
 	pkgredis "github.com/deliveryhub/dispatch-service/pkg/redis"
+	"github.com/deliveryhub/go-common/eureka"
 	"github.com/gin-gonic/gin"
 	goredis "github.com/go-redis/redis/v8"
+	swaggerFiles "github.com/swaggo/files"
+	ginSwagger "github.com/swaggo/gin-swagger"
+	_ "github.com/deliveryhub/dispatch-service/internal/config"
 	"go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
@@ -41,12 +55,68 @@ func main() {
 		}
 	}()
 
+	// Initialize Eureka client for service discovery
+	var eurekaClient *eureka.Client
+	ctx := context.Background()
+	
+	if cfg.EurekaEnabled {
+		eurekaConfig := eureka.DefaultClientConfig(cfg.AppName)
+		eurekaConfig.EurekaURLs = cfg.EurekaURLs
+		eurekaConfig.Username = cfg.EurekaUsername
+		eurekaConfig.Password = cfg.EurekaPassword
+		eurekaConfig.InstanceID = cfg.InstanceID
+		eurekaConfig.HostName = cfg.HostName
+		eurekaConfig.Port = cfg.PortInt
+		eurekaConfig.SecurePort = cfg.GRPCPortInt
+		eurekaConfig.HealthCheckURL = fmt.Sprintf("http://%s:%d/health", cfg.HostName, cfg.PortInt)
+		eurekaConfig.HomePageURL = fmt.Sprintf("http://%s:%d", cfg.HostName, cfg.PortInt)
+		eurekaConfig.StatusPageURL = fmt.Sprintf("http://%s:%d/actuator/info", cfg.HostName, cfg.PortInt)
+		eurekaConfig.VIPAddress = cfg.AppName
+		eurekaConfig.SecureVIPAddress = cfg.AppName
+		eurekaConfig.Metadata = map[string]string{
+			"zone":         "default",
+			"version":      "1.0.0",
+			"grpc-port":    cfg.GRPCPort,
+			"secure-port":  fmt.Sprintf("%d", cfg.GRPCPortInt),
+		}
+
+		eurekaClient = eureka.NewClient(eurekaConfig)
+		
+		// Register with Eureka
+		if err := eurekaClient.Register(ctx); err != nil {
+			log.Printf("Warning: failed to register with Eureka: %v", err)
+		} else {
+			log.Println("Registered with Eureka")
+		}
+
+		// Start heartbeat and registry fetch
+		eurekaClient.StartHeartbeat(ctx)
+		eurekaClient.StartRegistryFetch(ctx)
+		defer eurekaClient.Stop()
+	}
+
 	// Initialize Redis
 	redisClient := initRedis(cfg)
 	defer redisClient.Close()
 
 	// Initialize Kafka
 	dispatchRedisClient := pkgredis.NewDispatchRedisClient(redisClient)
+	
+	// If Eureka is enabled, use service discovery for driver service gRPC
+	driverServiceGRPCAddr := cfg.DriverServiceGRPCAddr
+	if cfg.EurekaEnabled && eurekaClient != nil {
+		// Try to discover driver-service
+		instances := eurekaClient.GetInstances("driver-service")
+		if len(instances) > 0 {
+			// Use gRPC port from metadata or default
+			grpcPort := instances[0].Metadata["grpc-port"]
+			if grpcPort == "" {
+				grpcPort = "9092"
+			}
+			driverServiceGRPCAddr = fmt.Sprintf("%s:%s", instances[0].IPAddr, grpcPort)
+			log.Printf("Discovered driver-service gRPC at: %s", driverServiceGRPCAddr)
+		}
+	}
 	
 	kafkaConsumer := kafka.NewConsumer(cfg.KafkaBrokers, cfg.KafkaConsumerGroup, []string{"delivery.created"})
 	defer kafkaConsumer.Close()
@@ -59,7 +129,7 @@ func main() {
 		dispatchRedisClient,
 		kafkaConsumer,
 		kafkaPublisher,
-		cfg.DriverServiceGRPCAddr,
+		driverServiceGRPCAddr,
 		cfg.OrderServiceURL,
 		50.0, // max distance km
 	)
@@ -85,6 +155,9 @@ func main() {
 	router.GET("/metrics", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"message": "metrics endpoint"})
 	})
+
+	// Swagger UI
+	router.GET("/api/docs/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 
 	// Start HTTP server
 	httpServer := &http.Server{
@@ -124,8 +197,18 @@ func main() {
 
 	cancel() // Stop dispatch consumer
 
+	// Close gRPC client
+	if err := dispatchService.Close(); err != nil {
+		log.Printf("Error closing gRPC client: %v", err)
+	}
+
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer shutdownCancel()
+
+	// Deregister from Eureka
+	if eurekaClient != nil {
+		eurekaClient.Deregister(shutdownCtx)
+	}
 
 	if err := httpServer.Shutdown(shutdownCtx); err != nil {
 		log.Printf("HTTP server shutdown error: %v", err)

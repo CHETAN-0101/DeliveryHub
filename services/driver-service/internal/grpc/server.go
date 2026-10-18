@@ -2,17 +2,19 @@ package grpc
 
 import (
 	"context"
+	"time"
 
 	"github.com/deliveryhub/driver-service/internal/model"
 	"github.com/deliveryhub/driver-service/internal/service"
 	"github.com/google/uuid"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	drivergrpc "github.com/deliveryhub/driver-service/internal/grpc"
 )
 
 // DriverServiceServer implements the gRPC service for driver operations
 type DriverServiceServer struct {
-	UnimplementedDriverServiceServer
+	drivergrpc.UnimplementedDriverServiceServer
 	service *service.DriverService
 }
 
@@ -20,7 +22,7 @@ func NewDriverServiceServer(svc *service.DriverService) *DriverServiceServer {
 	return &DriverServiceServer{service: svc}
 }
 
-func (s *DriverServiceServer) GetDriver(ctx context.Context, req *GetDriverRequest) (*GetDriverResponse, error) {
+func (s *DriverServiceServer) GetDriver(ctx context.Context, req *drivergrpc.GetDriverRequest) (*drivergrpc.GetDriverResponse, error) {
 	id, err := uuid.Parse(req.DriverId)
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "invalid driver ID")
@@ -31,37 +33,37 @@ func (s *DriverServiceServer) GetDriver(ctx context.Context, req *GetDriverReque
 		return nil, status.Errorf(codes.NotFound, "driver not found")
 	}
 
-	return &GetDriverResponse{
-		Driver: &Driver{
-			Id:             driver.ID.String(),
-			Name:           driver.Name,
-			Phone:          driver.Phone,
-			Email:          driver.Email,
-			VehicleType:    driver.VehicleType,
-			LicensePlate:   driver.LicensePlate,
-			Status:         driver.Status.String(),
-			CurrentLatitude: 0,
+	return &drivergrpc.GetDriverResponse{
+		Driver: &drivergrpc.Driver{
+			Id:              driver.ID.String(),
+			Name:            driver.Name,
+			Phone:           driver.Phone,
+			Email:           driver.Email,
+			VehicleType:     driver.VehicleType,
+			LicensePlate:    driver.LicensePlate,
+			Status:          driver.Status.String(),
+			CurrentLatitude:  0,
 			CurrentLongitude: 0,
-			Rating:         driver.Rating,
+			Rating:          driver.Rating,
 			TotalDeliveries: int32(driver.TotalDeliveries),
 		},
 	}, nil
 }
 
-func (s *DriverServiceServer) GetDriverLocation(ctx context.Context, req *GetDriverLocationRequest) (*GetDriverLocationResponse, error) {
+func (s *DriverServiceServer) GetDriverLocation(ctx context.Context, req *drivergrpc.GetDriverLocationRequest) (*drivergrpc.GetDriverLocationResponse, error) {
 	lat, lon, found := s.service.GetDriverLocation(ctx, req.DriverId)
 	if !found {
 		return nil, status.Errorf(codes.NotFound, "location not found")
 	}
 
-	return &GetDriverLocationResponse{
-		DriverId:   req.DriverId,
-		Latitude:   lat,
-		Longitude:  lon,
+	return &drivergrpc.GetDriverLocationResponse{
+		DriverId:  req.DriverId,
+		Latitude:  lat,
+		Longitude: lon,
 	}, nil
 }
 
-func (s *DriverServiceServer) UpdateDriverStatus(ctx context.Context, req *UpdateDriverStatusRequest) (*UpdateDriverStatusResponse, error) {
+func (s *DriverServiceServer) UpdateDriverStatus(ctx context.Context, req *drivergrpc.UpdateDriverStatusRequest) (*drivergrpc.UpdateDriverStatusResponse, error) {
 	id, err := uuid.Parse(req.DriverId)
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "invalid driver ID")
@@ -76,104 +78,69 @@ func (s *DriverServiceServer) UpdateDriverStatus(ctx context.Context, req *Updat
 		return nil, status.Errorf(codes.FailedPrecondition, err.Error())
 	}
 
-	return &UpdateDriverStatusResponse{Success: true}, nil
+	return &drivergrpc.UpdateDriverStatusResponse{Success: true}, nil
 }
 
-func (s *DriverServiceServer) ReserveDriver(ctx context.Context, req *ReserveDriverRequest) (*ReserveDriverResponse, error) {
+func (s *DriverServiceServer) ReserveDriver(ctx context.Context, req *drivergrpc.ReserveDriverRequest) (*drivergrpc.ReserveDriverResponse, error) {
 	success, err := s.service.ReserveDriver(ctx, req.DriverId, req.DeliveryId, 5*time.Minute)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, err.Error())
 	}
 
 	if !success {
-		return &ReserveDriverResponse{Success: false, Message: "driver already reserved"}, nil
+		return &drivergrpc.ReserveDriverResponse{Success: false, Message: "driver already reserved"}, nil
 	}
 
-	return &ReserveDriverResponse{Success: true}, nil
+	return &drivergrpc.ReserveDriverResponse{Success: true}, nil
 }
 
-func (s *DriverServiceServer) ReleaseDriverReservation(ctx context.Context, req *ReleaseDriverReservationRequest) (*ReleaseDriverReservationResponse, error) {
+func (s *DriverServiceServer) ReleaseDriverReservation(ctx context.Context, req *drivergrpc.ReleaseDriverReservationRequest) (*drivergrpc.ReleaseDriverReservationResponse, error) {
 	if err := s.service.ReleaseReservation(ctx, req.DriverId); err != nil {
 		return nil, status.Errorf(codes.Internal, err.Error())
 	}
-	return &ReleaseDriverReservationResponse{Success: true}, nil
+	return &drivergrpc.ReleaseDriverReservationResponse{Success: true}, nil
 }
 
-// Protobuf message types (defined inline for simplicity, would normally be in .proto file)
-type GetDriverRequest struct {
-	DriverId string `json:"driver_id"`
-}
+func (s *DriverServiceServer) FindNearbyDrivers(ctx context.Context, req *drivergrpc.FindNearbyDriversRequest) (*drivergrpc.FindNearbyDriversResponse, error) {
+	if req.RadiusKm <= 0 {
+		req.RadiusKm = 10.0 // Default 10km
+	}
+	if req.Limit <= 0 {
+		req.Limit = 20 // Default 20 drivers
+	}
 
-type GetDriverResponse struct {
-	Driver *Driver `json:"driver"`
-}
+	driverIDs, err := s.service.FindNearbyAvailableDrivers(ctx, req.Latitude, req.Longitude, req.RadiusKm)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, err.Error())
+	}
 
-type GetDriverLocationRequest struct {
-	DriverId string `json:"driver_id"`
-}
+	if len(driverIDs) > int(req.Limit) {
+		driverIDs = driverIDs[:req.Limit]
+	}
 
-type GetDriverLocationResponse struct {
-	DriverId  string  `json:"driver_id"`
-	Latitude  float64 `json:"latitude"`
-	Longitude float64 `json:"longitude"`
-}
+	var drivers []*drivergrpc.Driver
+	for _, driverID := range driverIDs {
+		driver, err := s.service.GetDriver(ctx, uuid.MustParse(driverID))
+		if err != nil {
+			continue // Skip drivers that can't be loaded
+		}
 
-type UpdateDriverStatusRequest struct {
-	DriverId string `json:"driver_id"`
-	Status   string `json:"status"`
-}
+		lat, lon, _ := s.service.GetDriverLocation(ctx, driverID)
 
-type UpdateDriverStatusResponse struct {
-	Success bool `json:"success"`
-}
+		drivers = append(drivers, &drivergrpc.Driver{
+			Id:              driver.ID.String(),
+			Name:            driver.Name,
+			Phone:           driver.Phone,
+			Email:           driver.Email,
+			VehicleType:     driver.VehicleType,
+			LicensePlate:    driver.LicensePlate,
+			Status:          driver.Status.String(),
+			CurrentLatitude:  lat,
+			CurrentLongitude: lon,
+			Rating:          driver.Rating,
+			TotalDeliveries: int32(driver.TotalDeliveries),
+		})
+	}
 
-type ReserveDriverRequest struct {
-	DriverId   string `json:"driver_id"`
-	DeliveryId string `json:"delivery_id"`
-}
-
-type ReserveDriverResponse struct {
-	Success  bool   `json:"success"`
-	Message  string `json:"message"`
-}
-
-type ReleaseDriverReservationRequest struct {
-	DriverId string `json:"driver_id"`
-}
-
-type ReleaseDriverReservationResponse struct {
-	Success bool `json:"success"`
-}
-
-type Driver struct {
-	Id              string  `json:"id"`
-	Name            string  `json:"name"`
-	Phone           string  `json:"phone"`
-	Email           string  `json:"email"`
-	VehicleType     string  `json:"vehicle_type"`
-	LicensePlate    string  `json:"license_plate"`
-	Status          string  `json:"status"`
-	CurrentLatitude  float64 `json:"current_latitude"`
-	CurrentLongitude float64 `json:"current_longitude"`
-	Rating          float64 `json:"rating"`
-	TotalDeliveries int32   `json:"total_deliveries"`
-}
-
-// UnimplementedDriverServiceServer must be embedded
-type UnimplementedDriverServiceServer struct{}
-
-func (UnimplementedDriverServiceServer) GetDriver(context.Context, *GetDriverRequest) (*GetDriverResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method GetDriver not implemented")
-}
-func (UnimplementedDriverServiceServer) GetDriverLocation(context.Context, *GetDriverLocationRequest) (*GetDriverLocationResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method GetDriverLocation not implemented")
-}
-func (UnimplementedDriverServiceServer) UpdateDriverStatus(context.Context, *UpdateDriverStatusRequest) (*UpdateDriverStatusResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method UpdateDriverStatus not implemented")
-}
-func (UnimplementedDriverServiceServer) ReserveDriver(context.Context, *ReserveDriverRequest) (*ReserveDriverResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method ReserveDriver not implemented")
-}
-func (UnimplementedDriverServiceServer) ReleaseDriverReservation(context.Context, *ReleaseDriverReservationRequest) (*ReleaseDriverReservationResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method ReleaseDriverReservation not implemented")
+	return &drivergrpc.FindNearbyDriversResponse{Drivers: drivers}, nil
 }

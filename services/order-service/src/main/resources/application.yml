@@ -7,6 +7,35 @@ spring:
   application:
     name: order-service
 
+  cloud:
+    discovery:
+      enabled: true
+    inetutils:
+      preferred-networks: 172.18,10.0,192.168
+    config:
+      discovery:
+        enabled: true
+        service-id: config-server
+  eureka:
+    client:
+      enabled: true
+      register-with-eureka: true
+      fetch-registry: true
+      service-url:
+        defaultZone: http://${EUREKA_USER:admin}:${EUREKA_PASSWORD:admin}@${EUREKA_HOST:eureka-server}:${EUREKA_PORT:8761}/eureka/
+      registry-fetch-interval-seconds: 30
+      instance-info-replication-interval-seconds: 30
+    instance:
+      prefer-ip-address: true
+      ip-address: ${HOSTNAME:localhost}
+      hostname: ${HOSTNAME:localhost}
+      lease-renewal-interval-in-seconds: 10
+      lease-expiration-duration-in-seconds: 30
+      metadata-map:
+        zone: ${ZONE:default}
+        version: ${VERSION:1.0.0}
+        secure-port: ${SERVER_PORT:8081}
+
   datasource:
     url: jdbc:postgresql://${ORDER_DB_HOST:localhost}:${ORDER_DB_PORT:5432}/${ORDER_DB_NAME:order_db}
     username: ${ORDER_DB_USER:order_user}

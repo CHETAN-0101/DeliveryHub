@@ -8,6 +8,7 @@ import (
 	"math"
 	"time"
 
+	"github.com/deliveryhub/dispatch-service/internal/grpc"
 	"github.com/deliveryhub/dispatch-service/internal/model"
 	"github.com/deliveryhub/dispatch-service/pkg/kafka"
 	"github.com/deliveryhub/dispatch-service/pkg/redis"
@@ -16,12 +17,13 @@ import (
 )
 
 type DispatchService struct {
-	redisClient      *redis.DispatchRedisClient
-	kafkaConsumer    *kafka.Consumer
-	kafkaPublisher   *kafka.Publisher
+	redisClient           *redis.DispatchRedisClient
+	kafkaConsumer         *kafka.Consumer
+	kafkaPublisher        *kafka.Publisher
 	driverServiceGRPCAddr string
-	orderServiceURL  string
-	maxDistanceKm    float64
+	driverServiceClient   *grpc.DriverServiceClient
+	orderServiceURL       string
+	maxDistanceKm         float64
 }
 
 func NewDispatchService(
@@ -32,11 +34,17 @@ func NewDispatchService(
 	orderServiceURL string,
 	maxDistanceKm float64,
 ) *DispatchService {
+	driverClient, err := grpc.NewDriverServiceClient(driverServiceGRPCAddr)
+	if err != nil {
+		log.Printf("Warning: failed to create driver service gRPC client: %v", err)
+	}
+
 	return &DispatchService{
 		redisClient:           redisClient,
 		kafkaConsumer:         kafkaConsumer,
 		kafkaPublisher:        kafkaPublisher,
 		driverServiceGRPCAddr: driverServiceGRPCAddr,
+		driverServiceClient:   driverClient,
 		orderServiceURL:       orderServiceURL,
 		maxDistanceKm:         maxDistanceKm,
 	}
@@ -161,23 +169,54 @@ func (s *DispatchService) processMessage(ctx context.Context, msg kafkago.Messag
 }
 
 func (s *DispatchService) findNearbyDrivers(ctx context.Context, lat, lon float64) ([]string, error) {
-	// In production, this would call driver service gRPC or use Redis geo
-	// For now, we'll use a simple mock implementation
-	// The actual implementation would use Redis GEOSEARCH
-	
-	// Mock: return a fixed list of driver IDs
-	// TODO: Replace with actual Redis GEOSEARCH call
-	return []string{}, nil
+	// Use gRPC to find nearby available drivers
+	if s.driverServiceClient == nil {
+		log.Printf("Driver service client not available, cannot find nearby drivers")
+		return []string{}, nil
+	}
+
+	drivers, err := s.driverServiceClient.FindNearbyDrivers(ctx, lat, lon, s.maxDistanceKm, 20)
+	if err != nil {
+		log.Printf("gRPC error finding nearby drivers: %v", err)
+		return []string{}, err
+	}
+
+	var driverIDs []string
+	for _, driver := range drivers {
+		driverIDs = append(driverIDs, driver.Id)
+	}
+
+	return driverIDs, nil
 }
 
 func (s *DispatchService) reserveDriver(ctx context.Context, driverID, deliveryID string) (bool, error) {
-	// In production, this would call driver service gRPC ReserveDriver method
-	// For now, return false to indicate no drivers available
-	return false, nil
+	if s.driverServiceClient == nil {
+		log.Printf("Driver service client not available, cannot reserve driver %s", driverID)
+		return false, nil
+	}
+
+	success, msg, err := s.driverServiceClient.ReserveDriver(ctx, driverID, deliveryID)
+	if err != nil {
+		log.Printf("gRPC error reserving driver %s: %v", driverID, err)
+		return false, err
+	}
+
+	if !success {
+		log.Printf("Failed to reserve driver %s: %s", driverID, msg)
+	}
+
+	return success, nil
 }
 
 func (s *DispatchService) getDriverDetails(ctx context.Context, driverID uuid.UUID) (name, phone, vehicleType, licensePlate string) {
-	// Mock driver details
+	if s.driverServiceClient != nil {
+		resp, err := s.driverServiceClient.GetDriver(ctx, driverID.String())
+		if err == nil && resp != nil && resp.Driver != nil {
+			return resp.Driver.Name, resp.Driver.Phone, resp.Driver.VehicleType, resp.Driver.LicensePlate
+		}
+		log.Printf("Failed to get driver details via gRPC for %s: %v", driverID, err)
+	}
+	// Fallback to mock data
 	return "John Driver", "+1234567890", "MOTORCYCLE", "ABC-1234"
 }
 
@@ -187,6 +226,13 @@ func (s *DispatchService) handleNoDriversAvailable(ctx context.Context, event mo
 	// 2. Publish to retry topic
 	// 3. Eventually mark delivery as unassignable
 	log.Printf("No drivers available for delivery %s", event.AggregateID)
+	return nil
+}
+
+func (s *DispatchService) Close() error {
+	if s.driverServiceClient != nil {
+		return s.driverServiceClient.Close()
+	}
 	return nil
 }
 
