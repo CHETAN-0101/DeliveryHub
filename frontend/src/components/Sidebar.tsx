@@ -24,6 +24,7 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Dashboard', path: '/', icon: <LayoutDashboard size={18} /> },
   { label: 'Deliveries', path: '/deliveries', icon: <Package size={18} /> },
   { label: 'Drivers', path: '/drivers', icon: <Truck size={18} /> },
+  { label: 'Driver Dashboard', path: '/driver-dashboard', icon: <Activity size={18} /> },
   { label: 'Dispatch', path: '/dispatch', icon: <Activity size={18} /> },
   { label: 'AI Insights', path: '/ai', icon: <Cpu size={18} /> },
   { label: 'AI Assistant', path: '/assistant', icon: <MessageSquare size={18} /> },

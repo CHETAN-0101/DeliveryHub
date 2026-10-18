@@ -1,5 +1,15 @@
 package main
 
+// @title DeliveryHub API Gateway
+// @version 1.0.0
+// @description API Gateway for DeliveryHub microservices
+// @host localhost:8080
+// @BasePath /api/v1
+// @securityDefinitions.apikey Bearer
+// @in header
+// @name Authorization
+// @description JWT Authorization header using the Bearer scheme. Example: "Authorization: Bearer {token}"
+
 import (
 	"context"
 	"fmt"
@@ -15,8 +25,12 @@ import (
 	"github.com/deliveryhub/api-gateway/internal/handler"
 	"github.com/deliveryhub/api-gateway/internal/middleware"
 	"github.com/deliveryhub/api-gateway/internal/ratelimit"
+	"github.com/deliveryhub/go-common/eureka"
 	"github.com/gin-gonic/gin"
 	"github.com/go-redis/redis/v8"
+	swaggerFiles "github.com/swaggo/files"
+	ginSwagger "github.com/swaggo/gin-swagger"
+	_ "github.com/deliveryhub/api-gateway/internal/config"
 	"go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
@@ -50,30 +64,53 @@ func main() {
 	// Initialize auth middleware
 	authMiddleware := middleware.NewAuthMiddleware(cfg.KeycloakURL, cfg.KeycloakRealm)
 
-	// Initialize service clients
-	orderClient, err := client.NewServiceClient(cfg.OrderServiceURL, "order-service")
-	if err != nil {
-		log.Printf("Warning: failed to create order service client: %v", err)
-	}
+	// Initialize Eureka client for service discovery
+	var eurekaClient *eureka.Client
+	var discovery *eureka.ServiceDiscovery
+	var serviceClients map[string]*client.EurekaServiceClient
 
-	driverClient, err := client.NewServiceClient(cfg.DriverServiceURL, "driver-service")
-	if err != nil {
-		log.Printf("Warning: failed to create driver service client: %v", err)
-	}
+	if cfg.EurekaEnabled {
+		eurekaConfig := eureka.DefaultClientConfig(cfg.AppName)
+		eurekaConfig.EurekaURLs = cfg.EurekaURLs
+		eurekaConfig.Username = cfg.EurekaUsername
+		eurekaConfig.Password = cfg.EurekaPassword
+		eurekaConfig.InstanceID = cfg.InstanceID
+		eurekaConfig.HostName = cfg.HostName
+		eurekaConfig.Port = cfg.PortInt
+		eurekaConfig.HealthCheckURL = fmt.Sprintf("http://%s:%d/health", cfg.HostName, cfg.PortInt)
+		eurekaConfig.HomePageURL = fmt.Sprintf("http://%s:%d", cfg.HostName, cfg.PortInt)
+		eurekaConfig.StatusPageURL = fmt.Sprintf("http://%s:%d/actuator/info", cfg.HostName, cfg.PortInt)
 
-	dispatchClient, err := client.NewServiceClient(cfg.DispatchServiceURL, "dispatch-service")
-	if err != nil {
-		log.Printf("Warning: failed to create dispatch service client: %v", err)
-	}
+		eurekaClient = eureka.NewClient(eurekaConfig)
+		
+		// Register with Eureka
+		ctx := context.Background()
+		if err := eurekaClient.Register(ctx); err != nil {
+			log.Printf("Warning: failed to register with Eureka: %v", err)
+		} else {
+			log.Println("Registered with Eureka")
+		}
 
-	notificationClient, err := client.NewServiceClient(cfg.NotificationServiceURL, "notification-service")
-	if err != nil {
-		log.Printf("Warning: failed to create notification service client: %v", err)
-	}
+		// Start heartbeat and registry fetch
+		eurekaClient.StartHeartbeat(ctx)
+		eurekaClient.StartRegistryFetch(ctx)
+		defer eurekaClient.Stop()
 
-	aiClient, err := client.NewServiceClient(cfg.AIServiceURL, "ai-service")
-	if err != nil {
-		log.Printf("Warning: failed to create AI service client: %v", err)
+		// Create service discovery helper
+		discovery = eureka.NewServiceDiscovery(eurekaClient)
+
+		// Create service clients with Eureka discovery
+		serviceClients = make(map[string]*client.EurekaServiceClient)
+		services := []string{"order-service", "driver-service", "dispatch-service", "notification-service", "ai-service"}
+		for _, svc := range services {
+			sc, err := client.NewEurekaServiceClient(svc, discovery, eurekaClient)
+			if err != nil {
+				log.Printf("Warning: failed to create Eureka client for %s: %v", svc, err)
+			} else {
+				serviceClients[svc] = sc
+				sc.StartBackgroundRefresh(ctx, 30*time.Second)
+			}
+		}
 	}
 
 	// Initialize Gin router
@@ -91,12 +128,15 @@ func main() {
 	router.GET("/ready", healthHandler.Ready)
 	router.GET("/metrics", healthHandler.Metrics)
 
+	// Swagger UI
+	router.GET("/api/docs/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
+
 	// Protected routes
 	protected := router.Group("/api/v1")
 	protected.Use(authMiddleware.Validate())
 	{
 		// Order service routes
-		if orderClient != nil {
+		if orderClient := getServiceClient(serviceClients, "order-service", cfg.OrderServiceURL, "order-service"); orderClient != nil {
 			orders := protected.Group("/deliveries")
 			orders.Use(authMiddleware.RequireRoles("customer", "dispatcher", "admin"))
 			{
@@ -105,7 +145,7 @@ func main() {
 		}
 
 		// Driver service routes
-		if driverClient != nil {
+		if driverClient := getServiceClient(serviceClients, "driver-service", cfg.DriverServiceURL, "driver-service"); driverClient != nil {
 			drivers := protected.Group("/drivers")
 			drivers.Use(authMiddleware.RequireRoles("driver", "dispatcher", "admin"))
 			{
@@ -114,7 +154,7 @@ func main() {
 		}
 
 		// Dispatch service routes
-		if dispatchClient != nil {
+		if dispatchClient := getServiceClient(serviceClients, "dispatch-service", cfg.DispatchServiceURL, "dispatch-service"); dispatchClient != nil {
 			dispatch := protected.Group("/dispatch")
 			dispatch.Use(authMiddleware.RequireRoles("dispatcher", "admin"))
 			{
@@ -123,7 +163,7 @@ func main() {
 		}
 
 		// Notification service routes
-		if notificationClient != nil {
+		if notificationClient := getServiceClient(serviceClients, "notification-service", cfg.NotificationServiceURL, "notification-service"); notificationClient != nil {
 			notifications := protected.Group("/notifications")
 			notifications.Use(authMiddleware.RequireRoles("customer", "driver", "dispatcher", "admin"))
 			{
@@ -132,7 +172,7 @@ func main() {
 		}
 
 		// AI service routes
-		if aiClient != nil {
+		if aiClient := getServiceClient(serviceClients, "ai-service", cfg.AIServiceURL, "ai-service"); aiClient != nil {
 			ai := protected.Group("/ai")
 			ai.Use(authMiddleware.RequireRoles("customer", "driver", "dispatcher", "admin"))
 			{
@@ -165,11 +205,32 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
+	// Deregister from Eureka
+	if eurekaClient != nil {
+		eurekaClient.Deregister(ctx)
+	}
+
 	if err := server.Shutdown(ctx); err != nil {
 		log.Printf("Server shutdown error: %v", err)
 	}
 
 	log.Println("API Gateway stopped")
+}
+
+// getServiceClient returns the appropriate service client (Eureka or static)
+func getServiceClient(eurekaClients map[string]*client.EurekaServiceClient, serviceName, fallbackURL, fallbackName string) interface{ Handle(gin.HandlerFunc) interface{ HandleWithPrefix(string) gin.HandlerFunc } } {
+	if eurekaClients != nil {
+		if sc, ok := eurekaClients[serviceName]; ok {
+			return sc
+		}
+	}
+	// Fallback to static client
+	sc, err := client.NewServiceClient(fallbackURL, fallbackName)
+	if err != nil {
+		log.Printf("Warning: failed to create %s client: %v", fallbackName, err)
+		return nil
+	}
+	return sc
 }
 
 func initTracer(cfg *config.Config) (*sdktrace.TracerProvider, error) {

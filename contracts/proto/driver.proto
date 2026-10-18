@@ -10,6 +10,7 @@ service DriverService {
   rpc UpdateDriverStatus(UpdateDriverStatusRequest) returns (UpdateDriverStatusResponse);
   rpc ReserveDriver(ReserveDriverRequest) returns (ReserveDriverResponse);
   rpc ReleaseDriverReservation(ReleaseDriverReservationRequest) returns (ReleaseDriverReservationResponse);
+  rpc FindNearbyDrivers(FindNearbyDriversRequest) returns (FindNearbyDriversResponse);
 }
 
 message GetDriverRequest {
@@ -55,6 +56,17 @@ message ReleaseDriverReservationRequest {
 
 message ReleaseDriverReservationResponse {
   bool success = 1;
+}
+
+message FindNearbyDriversRequest {
+  double latitude = 1;
+  double longitude = 2;
+  double radius_km = 3;
+  int32 limit = 4;
+}
+
+message FindNearbyDriversResponse {
+  repeated Driver drivers = 1;
 }
 
 message Driver {

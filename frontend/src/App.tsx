@@ -7,6 +7,7 @@ import Sidebar from './components/Sidebar';
 import Dashboard from './pages/Dashboard';
 import DeliveriesPage from './pages/Deliveries';
 import DriversPage from './pages/Drivers';
+import DriverDashboardPage from './pages/DriverDashboard';
 import DispatchPage from './pages/Dispatch';
 import AIInsightsPage from './pages/AIInsights';
 import AIAssistantPage from './pages/AIAssistant';
@@ -87,6 +88,7 @@ function AppShell() {
           <Route path="/" element={<Dashboard />} />
           <Route path="/deliveries" element={<DeliveriesPage />} />
           <Route path="/drivers" element={<DriversPage />} />
+          <Route path="/driver-dashboard" element={<DriverDashboardPage />} />
           <Route path="/dispatch" element={<DispatchPage />} />
           <Route path="/ai" element={<AIInsightsPage />} />
           <Route path="/assistant" element={<AIAssistantPage />} />

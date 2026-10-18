@@ -1,7 +1,18 @@
 package main
 
+// @title DeliveryHub Driver Service
+// @version 1.0.0
+// @description Driver management service for DeliveryHub
+// @host localhost:8082
+// @BasePath /api/v1
+// @securityDefinitions.apikey Bearer
+// @in header
+// @name Authorization
+// @description JWT Authorization header using the Bearer scheme. Example: "Authorization: Bearer {token}"
+
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net"
@@ -12,14 +23,19 @@ import (
 	"time"
 
 	"github.com/deliveryhub/driver-service/internal/config"
+	"github.com/deliveryhub/driver-service/internal/grpc"
 	"github.com/deliveryhub/driver-service/internal/handler"
 	"github.com/deliveryhub/driver-service/internal/repository"
 	"github.com/deliveryhub/driver-service/internal/service"
 	"github.com/deliveryhub/driver-service/pkg/kafka"
 	pkgredis "github.com/deliveryhub/driver-service/pkg/redis"
+	"github.com/deliveryhub/go-common/eureka"
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/go-redis/redis/v8"
+	swaggerFiles "github.com/swaggo/files"
+	ginSwagger "github.com/swaggo/gin-swagger"
+	_ "github.com/deliveryhub/driver-service/internal/config"
 	"go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
@@ -28,6 +44,7 @@ import (
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.21.0"
 	"google.golang.org/grpc"
+	drivergrpc "github.com/deliveryhub/driver-service/internal/grpc"
 )
 
 func main() {
@@ -43,6 +60,46 @@ func main() {
 			tp.Shutdown(context.Background())
 		}
 	}()
+
+	// Initialize Eureka client for service discovery
+	var eurekaClient *eureka.Client
+	ctx := context.Background()
+	
+	if cfg.EurekaEnabled {
+		eurekaConfig := eureka.DefaultClientConfig(cfg.AppName)
+		eurekaConfig.EurekaURLs = cfg.EurekaURLs
+		eurekaConfig.Username = cfg.EurekaUsername
+		eurekaConfig.Password = cfg.EurekaPassword
+		eurekaConfig.InstanceID = cfg.InstanceID
+		eurekaConfig.HostName = cfg.HostName
+		eurekaConfig.Port = cfg.PortInt
+		eurekaConfig.SecurePort = cfg.GRPCPortInt
+		eurekaConfig.HealthCheckURL = fmt.Sprintf("http://%s:%d/health", cfg.HostName, cfg.PortInt)
+		eurekaConfig.HomePageURL = fmt.Sprintf("http://%s:%d", cfg.HostName, cfg.PortInt)
+		eurekaConfig.StatusPageURL = fmt.Sprintf("http://%s:%d/actuator/info", cfg.HostName, cfg.PortInt)
+		eurekaConfig.VIPAddress = cfg.AppName
+		eurekaConfig.SecureVIPAddress = cfg.AppName
+		eurekaConfig.Metadata = map[string]string{
+			"zone":         "default",
+			"version":      "1.0.0",
+			"grpc-port":    cfg.GRPCPort,
+			"secure-port":  fmt.Sprintf("%d", cfg.GRPCPortInt),
+		}
+
+		eurekaClient = eureka.NewClient(eurekaConfig)
+		
+		// Register with Eureka
+		if err := eurekaClient.Register(ctx); err != nil {
+			log.Printf("Warning: failed to register with Eureka: %v", err)
+		} else {
+			log.Println("Registered with Eureka")
+		}
+
+		// Start heartbeat and registry fetch
+		eurekaClient.StartHeartbeat(ctx)
+		eurekaClient.StartRegistryFetch(ctx)
+		defer eurekaClient.Stop()
+	}
 
 	// Initialize PostgreSQL
 	db, err := initPostgres(cfg)
@@ -87,6 +144,9 @@ func main() {
 		c.JSON(http.StatusOK, gin.H{"message": "metrics endpoint - integrate with prometheus client"})
 	})
 
+	// Swagger UI
+	router.GET("/api/docs/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
+
 	// API routes
 	driverHandler := handler.NewDriverHandler(driverService)
 	v1 := router.Group("/api/v1")
@@ -119,8 +179,8 @@ func main() {
 	}
 
 	grpcServer := grpc.NewServer()
-	// Register gRPC services here
-	// driverpb.RegisterDriverServiceServer(grpcServer, grpc.NewDriverServiceServer(driverService))
+	// Register gRPC services
+	drivergrpc.RegisterDriverServiceServer(grpcServer, grpc.NewDriverServiceServer(driverService))
 
 	go func() {
 		log.Printf("Starting gRPC server on port %s", cfg.GRPCPort)
@@ -139,6 +199,11 @@ func main() {
 	// Graceful shutdown
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+
+	// Deregister from Eureka
+	if eurekaClient != nil {
+		eurekaClient.Deregister(ctx)
+	}
 
 	if err := httpServer.Shutdown(ctx); err != nil {
 		log.Printf("HTTP server shutdown error: %v", err)
@@ -240,8 +305,50 @@ func consumeDispatchEvents(consumer *kafka.Consumer, driverService *service.Driv
 			continue
 		}
 
-		// Process delivery created / cancelled events
-		// This would trigger driver assignment logic
-		log.Printf("Received message from topic %s: %s", msg.Topic, string(msg.Value))
+		switch msg.Topic {
+		case "delivery.created":
+			handleDeliveryCreated(ctx, msg, driverService)
+		case "delivery.cancelled":
+			handleDeliveryCancelled(ctx, msg, driverService)
+		default:
+			log.Printf("Received message from unknown topic %s: %s", msg.Topic, string(msg.Value))
+		}
 	}
+}
+
+func handleDeliveryCreated(ctx context.Context, msg kafka.Message, driverService *service.DriverService) {
+	// Parse delivery created event
+	var event struct {
+		AggregateID string `json:"aggregateId"`
+		Payload     struct {
+			PickupLatitude  float64 `json:"pickupLatitude"`
+			PickupLongitude float64 `json:"pickupLongitude"`
+		} `json:"payload"`
+	}
+	if err := json.Unmarshal(msg.Value, &event); err != nil {
+		log.Printf("Failed to unmarshal delivery.created: %v", err)
+		return
+	}
+
+	log.Printf("Delivery created: %s at (%f, %f)", event.AggregateID, event.Payload.PickupLatitude, event.Payload.PickupLongitude)
+	// In a full implementation, this would:
+	// 1. Find nearby available drivers using Redis GEOSEARCH
+	// 2. Notify drivers via push notification
+	// 3. Update driver status to RESERVED when assigned
+}
+
+func handleDeliveryCancelled(ctx context.Context, msg kafka.Message, driverService *service.DriverService) {
+	// Parse delivery cancelled event
+	var event struct {
+		AggregateID string `json:"aggregateId"`
+	}
+	if err := json.Unmarshal(msg.Value, &event); err != nil {
+		log.Printf("Failed to unmarshal delivery.cancelled: %v", err)
+		return
+	}
+
+	log.Printf("Delivery cancelled: %s", event.AggregateID)
+	// In a full implementation, this would:
+	// 1. Release any driver reservations for this delivery
+	// 2. Update driver status back to AVAILABLE
 }
