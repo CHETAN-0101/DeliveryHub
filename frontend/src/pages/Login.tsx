@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Zap, Eye, EyeOff, ArrowRight } from 'lucide-react';
+import { Zap, Eye, EyeOff, ArrowRight, Shield, User, Truck, Briefcase } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
 export default function LoginPage() {
@@ -190,9 +190,10 @@ export default function LoginPage() {
           {/* Demo buttons */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
             {[
-              { role: 'admin' as const, label: '👑 Admin', desc: 'Full access' },
-              { role: 'customer' as const, label: '👤 Customer', desc: 'Order deliveries' },
-              { role: 'driver' as const, label: '🚗 Driver', desc: 'Manage status' },
+              { role: 'admin' as const, label: '👑 Admin', desc: 'Full access', icon: <Shield size={18} /> },
+              { role: 'dispatcher' as const, label: '📋 Dispatcher', desc: 'Assign drivers', icon: <Briefcase size={18} /> },
+              { role: 'customer' as const, label: '👤 Customer', desc: 'Order deliveries', icon: <User size={18} /> },
+              { role: 'driver' as const, label: '🚗 Driver', desc: 'Manage status', icon: <Truck size={18} /> },
             ].map((d) => (
               <button
                 key={d.role}
@@ -206,7 +207,7 @@ export default function LoginPage() {
                   height: 'auto',
                 }}
               >
-                <span style={{ fontSize: 16 }}>{d.label.split(' ')[0]}</span>
+                <span style={{ fontSize: 16 }}>{d.icon}</span>
                 <span style={{ fontSize: 12, fontWeight: 600 }}>{d.label.split(' ').slice(1).join(' ')}</span>
                 <span style={{ fontSize: 10, color: 'var(--text-muted)', fontWeight: 400 }}>{d.desc}</span>
               </button>

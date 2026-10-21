@@ -156,3 +156,8 @@ app:
     batch-size: 100
   delivery:
     max-distance-km: 50
+  qr:
+    enabled: false
+    default-ttl-hours: 24
+    max-ttl-hours: 168
+    token-length-bytes: 32

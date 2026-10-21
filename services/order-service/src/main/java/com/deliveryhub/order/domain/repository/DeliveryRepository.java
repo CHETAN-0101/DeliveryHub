@@ -33,5 +33,7 @@ public interface DeliveryRepository extends JpaRepository<Delivery, UUID> {
 
     boolean existsById(UUID id);
 
+    boolean existsByIdAndDriverId(UUID id, UUID driverId);
+
     long countByStatus(DeliveryStatus status);
 }

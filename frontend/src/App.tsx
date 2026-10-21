@@ -4,8 +4,10 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import { ToastProvider } from './context/ToastContext';
 import ToastContainer from './components/ToastContainer';
 import Sidebar from './components/Sidebar';
+import { RoleGuard } from './components/RoleGuard';
 import Dashboard from './pages/Dashboard';
 import DeliveriesPage from './pages/Deliveries';
+import CreateDeliveryPage from './pages/CreateDelivery';
 import DriversPage from './pages/Drivers';
 import DriverDashboardPage from './pages/DriverDashboard';
 import DispatchPage from './pages/Dispatch';
@@ -13,6 +15,7 @@ import AIInsightsPage from './pages/AIInsights';
 import AIAssistantPage from './pages/AIAssistant';
 import NotificationsPage from './pages/Notifications';
 import SettingsPage from './pages/Settings';
+import AdminPanelPage from './pages/AdminPanel';
 import LoginPage from './pages/Login';
 
 // ---- Global Error Boundary ----
@@ -85,15 +88,17 @@ function AppShell() {
       <Sidebar />
       <div className="main-content">
         <Routes>
-          <Route path="/" element={<Dashboard />} />
-          <Route path="/deliveries" element={<DeliveriesPage />} />
-          <Route path="/drivers" element={<DriversPage />} />
-          <Route path="/driver-dashboard" element={<DriverDashboardPage />} />
-          <Route path="/dispatch" element={<DispatchPage />} />
-          <Route path="/ai" element={<AIInsightsPage />} />
-          <Route path="/assistant" element={<AIAssistantPage />} />
-          <Route path="/notifications" element={<NotificationsPage />} />
-          <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/" element={<RoleGuard allowedRoles={['customer', 'driver', 'dispatcher', 'admin']}><Dashboard /></RoleGuard>} />
+          <Route path="/deliveries" element={<RoleGuard allowedRoles={['customer', 'dispatcher', 'admin']}><DeliveriesPage /></RoleGuard>} />
+          <Route path="/deliveries/new" element={<RoleGuard allowedRoles={['customer', 'admin']}><CreateDeliveryPage /></RoleGuard>} />
+          <Route path="/drivers" element={<RoleGuard allowedRoles={['dispatcher', 'admin']}><DriversPage /></RoleGuard>} />
+          <Route path="/driver-dashboard" element={<RoleGuard allowedRoles={['driver', 'admin']}><DriverDashboardPage /></RoleGuard>} />
+          <Route path="/dispatch" element={<RoleGuard allowedRoles={['dispatcher', 'admin']}><DispatchPage /></RoleGuard>} />
+          <Route path="/ai" element={<RoleGuard allowedRoles={['customer', 'driver', 'dispatcher', 'admin']}><AIInsightsPage /></RoleGuard>} />
+          <Route path="/assistant" element={<RoleGuard allowedRoles={['customer', 'driver', 'dispatcher', 'admin']}><AIAssistantPage /></RoleGuard>} />
+          <Route path="/notifications" element={<RoleGuard allowedRoles={['customer', 'driver', 'dispatcher', 'admin']}><NotificationsPage /></RoleGuard>} />
+          <Route path="/settings" element={<RoleGuard allowedRoles={['customer', 'driver', 'dispatcher', 'admin']}><SettingsPage /></RoleGuard>} />
+          <Route path="/admin" element={<RoleGuard allowedRoles={['admin']}><AdminPanelPage /></RoleGuard>} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </div>

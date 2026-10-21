@@ -1,12 +1,11 @@
 import { useState, useEffect, useCallback } from 'react';
-import { MapPin, Truck, CheckCircle, XCircle, Clock, AlertCircle, Navigation2, RefreshCw } from 'lucide-react';
+import { MapPin, Truck, CheckCircle, Navigation2, RefreshCw, AlertCircle } from 'lucide-react';
 import Header from '../components/Header';
 import { DeliveryStatusBadge } from '../components/StatusBadge';
 import type { Delivery, DeliveryStatus } from '../types/api';
 import { orderApi, driverApi } from '../services/api';
 import { useToast } from '../context/ToastContext';
 import { useAuth } from '../context/AuthContext';
-import { format } from 'date-fns';
 
 const STATUS_ACTION_MAP: Record<DeliveryStatus, { label: string; action: string; color: string; icon: React.ReactNode } | null> = {
   ASSIGNED: { label: 'Pick Up', action: 'pickup', color: 'var(--accent-cyan)', icon: <Truck size={14} /> },
@@ -23,12 +22,11 @@ export default function DriverDashboard() {
   const { isDemoMode, user } = useAuth();
   const [deliveries, setDeliveries] = useState<Delivery[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedDelivery, setSelectedDelivery] = useState<Delivery | null>(null);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [driverLocation, setDriverLocation] = useState<{ lat: number; lon: number } | null>(null);
   const [watchingLocation, setWatchingLocation] = useState(false);
 
-  const driverId = user?.sub; // From JWT
+  const driverId = user?.id; // From JWT
 
   const loadAssignedDeliveries = useCallback(async () => {
     if (!driverId) return;

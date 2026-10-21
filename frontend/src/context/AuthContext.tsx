@@ -5,7 +5,7 @@ interface AuthUser {
   id: string;
   username: string;
   email: string;
-  role: 'customer' | 'admin' | 'driver';
+  role: 'customer' | 'admin' | 'driver' | 'dispatcher';
   name: string;
 }
 
@@ -43,6 +43,13 @@ const DEMO_USERS: Record<string, AuthUser> = {
     email: 'driver1@deliveryhub.com',
     role: 'driver',
     name: 'John Driver',
+  },
+  dispatcher: {
+    id: 'dispatcher-001',
+    username: 'dispatcher1',
+    email: 'dispatcher1@deliveryhub.com',
+    role: 'dispatcher',
+    name: 'Sarah Dispatcher',
   },
 };
 
