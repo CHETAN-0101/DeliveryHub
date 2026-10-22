@@ -18,4 +18,4 @@ require (
 	gopkg.in/yaml.v3 v3.0.1
 )
 
-replace github.com/deliveryhub/go-common => ../../go-common
+replace github.com/deliveryhub/go-common => ../go-common

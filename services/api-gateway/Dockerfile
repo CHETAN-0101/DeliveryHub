@@ -1,15 +1,22 @@
-# Build stage
+# Build stage — context must be ../../services (parent of api-gateway)
 FROM golang:1.22-alpine AS builder
 
-WORKDIR /app
+WORKDIR /workspace
 
 RUN apk add --no-cache git make
 
-COPY go.mod go.sum* ./
-RUN go mod download || go mod tidy
+# Copy go-common (local dependency)
+COPY go-common/ ./go-common/
 
-COPY . .
+# Copy this service
+COPY api-gateway/ ./api-gateway/
+
+WORKDIR /workspace/api-gateway
+
+# Download deps (go-common is resolved via replace directive pointing to ../go-common)
+RUN go mod download || true
 RUN go mod tidy
+
 RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o api-gateway ./cmd/gateway
 
 # Runtime stage
@@ -22,7 +29,7 @@ RUN apk add --no-cache ca-certificates wget
 RUN addgroup -g 1000 -S appgroup && \
     adduser -u 1000 -S appuser -G appgroup
 
-COPY --from=builder /app/api-gateway .
+COPY --from=builder /workspace/api-gateway/api-gateway .
 
 RUN chown -R appuser:appgroup /app
 

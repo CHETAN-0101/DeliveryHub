@@ -50,6 +50,12 @@ const KEYCLOAK_URL = import.meta.env.VITE_KEYCLOAK_URL || 'http://localhost:8090
 const KEYCLOAK_REALM = import.meta.env.VITE_KEYCLOAK_REALM || 'deliveryhub';
 const KEYCLOAK_CLIENT_ID = import.meta.env.VITE_KEYCLOAK_CLIENT_ID || 'delivery-client';
 
+// In development, use relative /realms/... path so Vite proxy routes it to Keycloak.
+// In production, use the absolute KEYCLOAK_URL.
+const KEYCLOAK_TOKEN_URL = import.meta.env.PROD
+  ? `${KEYCLOAK_URL}/realms/${KEYCLOAK_REALM}/protocol/openid-connect/token`
+  : `/realms/${KEYCLOAK_REALM}/protocol/openid-connect/token`;
+
 function parseJwtPayload(token: string): Record<string, unknown> {
   try {
     const payload = token.split('.')[1];
@@ -88,10 +94,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const login = async (username: string, password: string) => {
-    // 1) Try real Keycloak login
+    // 1) Try real Keycloak login via proxy (avoids CORS in dev)
     try {
       const res = await axios.post(
-        `${KEYCLOAK_URL}/realms/${KEYCLOAK_REALM}/protocol/openid-connect/token`,
+        KEYCLOAK_TOKEN_URL,
         new URLSearchParams({
           grant_type: 'password',
           client_id: KEYCLOAK_CLIENT_ID,

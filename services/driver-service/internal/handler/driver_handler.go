@@ -147,8 +147,11 @@ func (h *DriverHandler) ListDrivers(c *gin.Context) {
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "20"))
 	offset, _ := strconv.Atoi(c.DefaultQuery("offset", "0"))
 	
-	if limit > 100 {
-		limit = 100
+	if limit < 1 {
+		limit = 20
+	}
+	if limit > 500 {
+		limit = 500
 	}
 
 	drivers, err := h.service.ListDrivers(c.Request.Context(), limit, offset)

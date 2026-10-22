@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/deliveryhub/dispatch-service/internal/config"
+	"github.com/deliveryhub/dispatch-service/internal/handler"
 	"github.com/deliveryhub/dispatch-service/internal/service"
 	"github.com/deliveryhub/dispatch-service/pkg/kafka"
 	pkgredis "github.com/deliveryhub/dispatch-service/pkg/redis"
@@ -144,7 +145,7 @@ func main() {
 		}
 	}()
 
-	// Initialize Gin router for health/metrics
+	// Initialize Gin router for health/metrics and dispatch API
 	router := gin.Default()
 	router.Use(otelgin.Middleware("dispatch-service"))
 
@@ -155,6 +156,14 @@ func main() {
 	router.GET("/metrics", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"message": "metrics endpoint"})
 	})
+
+	// Dispatch HTTP API routes — consumed by the frontend via the API gateway
+	dispatchHandler := handler.NewDispatchHandler(dispatchRedisClient)
+	api := router.Group("/api/v1/dispatch")
+	{
+		api.GET("/events", dispatchHandler.GetEvents)
+		api.GET("/stats", dispatchHandler.GetStats)
+	}
 
 	// Swagger UI
 	router.GET("/api/docs/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))

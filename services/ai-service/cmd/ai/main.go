@@ -130,6 +130,9 @@ func main() {
 	aiHandler := handler.NewAIHandler(aiService)
 	v1 := router.Group("/api/v1/ai")
 	{
+		v1.GET("/health", func(c *gin.Context) {
+			c.JSON(http.StatusOK, gin.H{"status": "healthy", "service": "ai-service", "provider": aiProvider.Name()})
+		})
 		v1.POST("/deliveries/:id/eta", aiHandler.PredictETA)
 		v1.POST("/deliveries/:id/risk", aiHandler.AnalyzeRisk)
 		v1.POST("/assistant", aiHandler.AskAssistant)

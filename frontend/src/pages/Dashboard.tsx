@@ -21,6 +21,8 @@ import { orderApi, driverApi } from '../services/api';
 import { useToast } from '../context/ToastContext';
 import { useAuth } from '../context/AuthContext';
 import { format } from 'date-fns';
+import { checkAllServices, type ServiceHealth } from '../lib/health';
+
 
 const CHART_COLORS = ['#6366f1', '#06b6d4', '#10b981', '#f59e0b', '#f43f5e', '#8b5cf6', '#64748b'];
 
@@ -32,6 +34,8 @@ export default function Dashboard() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [chartData, setChartData] = useState<ReturnType<typeof getDeliveryChartData>>([]);
   const [loading, setLoading] = useState(true);
+  const [serviceHealth, setServiceHealth] = useState<ServiceHealth[]>([]);
+
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -66,6 +70,16 @@ export default function Dashboard() {
   }, [isDemoMode, addToast]);
 
   useEffect(() => { loadData(); }, [loadData]);
+
+  // Real-time health check — poll every 30s
+  useEffect(() => {
+    const runCheck = () => {
+      checkAllServices().then(setServiceHealth).catch(() => {});
+    };
+    runCheck();
+    const interval = setInterval(runCheck, 30000);
+    return () => clearInterval(interval);
+  }, []);
 
   const statusDist = getStatusDistribution(deliveries);
   const recentDeliveries = deliveries.slice(0, 8);
@@ -364,29 +378,35 @@ export default function Dashboard() {
             <AlertCircle size={14} color="var(--accent-emerald)" />
             <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>System Health</span>
           </div>
-          {[
-            { label: 'Order Service', ok: !isDemoMode },
-            { label: 'Driver Service', ok: !isDemoMode },
-            { label: 'Dispatch Service', ok: !isDemoMode },
-            { label: 'AI Service', ok: !isDemoMode },
-            { label: 'Notification Service', ok: !isDemoMode },
-            { label: 'Kafka', ok: !isDemoMode },
-            { label: 'Redis', ok: !isDemoMode },
-          ].map((s) => (
-            <div key={s.label} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12 }}>
-              <span
-                style={{
-                  width: 6,
-                  height: 6,
-                  borderRadius: '50%',
-                  background: s.ok ? 'var(--accent-emerald)' : 'var(--accent-amber)',
-                  animation: s.ok ? 'dotPulse 2s infinite' : 'none',
-                  display: 'inline-block',
-                }}
-              />
-              <span style={{ color: s.ok ? 'var(--text-secondary)' : 'var(--accent-amber)' }}>{s.label}</span>
-            </div>
-          ))}
+          {serviceHealth.length === 0 ? (
+            // Skeleton while checking
+            [...Array(6)].map((_, i) => (
+              <div key={i} className="skeleton" style={{ height: 18, width: 100, borderRadius: 4 }} />
+            ))
+          ) : (
+            serviceHealth.map((s) => (
+              <div key={s.label} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12 }}>
+                <span
+                  style={{
+                    width: 6,
+                    height: 6,
+                    borderRadius: '50%',
+                    background: s.status === 'up' ? 'var(--accent-emerald)' : s.status === 'checking' ? 'var(--accent-amber)' : 'var(--accent-rose)',
+                    animation: s.status === 'up' ? 'dotPulse 2s infinite' : 'none',
+                    display: 'inline-block',
+                  }}
+                />
+                <span style={{ color: s.status === 'up' ? 'var(--text-secondary)' : 'var(--accent-rose)' }}>
+                  {s.label}
+                </span>
+                {s.latencyMs && s.status === 'up' && (
+                  <span style={{ fontSize: 10, color: 'var(--text-muted)', marginLeft: 2 }}>
+                    {s.latencyMs}ms
+                  </span>
+                )}
+              </div>
+            ))
+          )}
           {isDemoMode && (
             <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--accent-amber)', fontWeight: 600 }}>
               ⚠ Demo Mode
@@ -397,6 +417,7 @@ export default function Dashboard() {
     </div>
   );
 }
+
 
 // ---- Sub-components ----
 interface StatCardProps {

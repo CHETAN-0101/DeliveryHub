@@ -17,6 +17,7 @@ import type {
   AssistantRequest,
   AssistantResponse,
   NotificationItem,
+  BackendNotificationResponse,
   DispatchStats,
   DispatchEvent,
 } from '../types/api';
@@ -97,11 +98,47 @@ export const dispatchApi = {
 };
 
 // ---- Notification Service ----
+
+/**
+ * Adapter: converts the backend NotificationResponse DTO to the frontend NotificationItem.
+ * The backend returns { subject, body, status, channel, createdAt } whereas the UI
+ * expects { title, message, type, read, timestamp }.
+ */
+function adaptNotification(n: BackendNotificationResponse): NotificationItem {
+  // Derive a frontend "type" from the templateName or channel
+  let type: NotificationItem['type'] = 'system';
+  const tmpl = (n.templateName ?? '').toLowerCase();
+  const ch   = (n.channel ?? '').toLowerCase();
+  if (tmpl.includes('delivery') || tmpl.includes('order')) type = 'delivery';
+  else if (tmpl.includes('driver'))                         type = 'driver';
+  else if (tmpl.includes('alert') || ch.includes('push'))  type = 'alert';
+
+  // A notification is "read" when its status is SENT (processed) and sentAt is set
+  const read = n.status === 'SENT' && !!n.sentAt;
+
+  return {
+    id:        String(n.id),
+    type,
+    title:     n.subject ?? 'Notification',
+    message:   n.body ?? '',
+    read,
+    timestamp: n.createdAt,
+  };
+}
+
 export const notificationApi = {
-  list: (page = 0, size = 50) =>
-    api.get<PageResponse<NotificationItem>>('/api/v1/notifications', {
+  /** Returns a page of notifications adapted to the frontend shape. */
+  list: async (page = 0, size = 50) => {
+    const res = await api.get<PageResponse<BackendNotificationResponse>>('/api/v1/notifications', {
       params: { page, size },
-    }),
+    });
+    // Transform each backend item to the frontend NotificationItem shape
+    const adapted: PageResponse<NotificationItem> = {
+      ...res.data,
+      content: (res.data.content ?? []).map(adaptNotification),
+    };
+    return { ...res, data: adapted };
+  },
 
   markRead: (id: string) =>
     api.patch<{ message: string }>(`/api/v1/notifications/${id}/read`),
@@ -114,18 +151,25 @@ export const notificationApi = {
 };
 
 // ---- Auth (Keycloak) ----
+// NOTE: Uses the Vite proxy in development (/realms/* → Keycloak).
+// In production, set VITE_KEYCLOAK_URL and ensure the production reverse proxy forwards /realms/*.
 export const authApi = {
-  login: (username: string, password: string) =>
-    api.post('/realms/deliveryhub/protocol/openid-connect/token',
+  login: (username: string, password: string) => {
+    const realm = import.meta.env.VITE_KEYCLOAK_REALM || 'deliveryhub';
+    const clientId = import.meta.env.VITE_KEYCLOAK_CLIENT_ID || 'delivery-client';
+    // Use relative URL so Vite dev proxy routes /realms/* to Keycloak.
+    // In production builds, this path must also be proxied at the web server level.
+    return api.post(
+      `/realms/${realm}/protocol/openid-connect/token`,
       new URLSearchParams({
         grant_type: 'password',
-        client_id: 'delivery-client',
+        client_id: clientId,
         username,
         password,
       }),
       {
-        baseURL: import.meta.env.VITE_KEYCLOAK_URL || 'http://localhost:8090',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       }
-    ),
+    );
+  },
 };

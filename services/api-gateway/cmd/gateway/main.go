@@ -116,6 +116,7 @@ func main() {
 	// Initialize Gin router
 	router := gin.Default()
 	router.Use(otelgin.Middleware("api-gateway"))
+	router.Use(middleware.CORS())
 	router.Use(middleware.CorrelationID())
 	router.Use(middleware.RequestID())
 	router.Use(middleware.ErrorHandler())
@@ -140,6 +141,8 @@ func main() {
 			orders := protected.Group("/deliveries")
 			orders.Use(authMiddleware.RequireRoles("customer", "dispatcher", "admin"))
 			{
+				// Handle both /api/v1/deliveries (no trailing slash) and /api/v1/deliveries/* (with sub-path)
+				orders.Any("", orderClient.HandleWithPrefix("/api/v1/deliveries"))
 				orders.Any("/*path", orderClient.HandleWithPrefix("/api/v1/deliveries"))
 			}
 		}
@@ -147,8 +150,9 @@ func main() {
 		// Driver service routes
 		if driverClient := getServiceClient(serviceClients, "driver-service", cfg.DriverServiceURL, "driver-service"); driverClient != nil {
 			drivers := protected.Group("/drivers")
-			drivers.Use(authMiddleware.RequireRoles("driver", "dispatcher", "admin"))
+			drivers.Use(authMiddleware.RequireRoles("driver", "dispatcher", "admin", "customer"))
 			{
+				drivers.Any("", driverClient.HandleWithPrefix("/api/v1/drivers"))
 				drivers.Any("/*path", driverClient.HandleWithPrefix("/api/v1/drivers"))
 			}
 		}
@@ -156,8 +160,9 @@ func main() {
 		// Dispatch service routes
 		if dispatchClient := getServiceClient(serviceClients, "dispatch-service", cfg.DispatchServiceURL, "dispatch-service"); dispatchClient != nil {
 			dispatch := protected.Group("/dispatch")
-			dispatch.Use(authMiddleware.RequireRoles("dispatcher", "admin"))
+			dispatch.Use(authMiddleware.RequireRoles("dispatcher", "admin", "customer"))
 			{
+				dispatch.Any("", dispatchClient.HandleWithPrefix("/api/v1/dispatch"))
 				dispatch.Any("/*path", dispatchClient.HandleWithPrefix("/api/v1/dispatch"))
 			}
 		}
@@ -167,6 +172,7 @@ func main() {
 			notifications := protected.Group("/notifications")
 			notifications.Use(authMiddleware.RequireRoles("customer", "driver", "dispatcher", "admin"))
 			{
+				notifications.Any("", notificationClient.HandleWithPrefix("/api/v1/notifications"))
 				notifications.Any("/*path", notificationClient.HandleWithPrefix("/api/v1/notifications"))
 			}
 		}
@@ -176,6 +182,7 @@ func main() {
 			ai := protected.Group("/ai")
 			ai.Use(authMiddleware.RequireRoles("customer", "driver", "dispatcher", "admin"))
 			{
+				ai.Any("", aiClient.HandleWithPrefix("/api/v1/ai"))
 				ai.Any("/*path", aiClient.HandleWithPrefix("/api/v1/ai"))
 			}
 		}

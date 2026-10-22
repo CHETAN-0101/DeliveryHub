@@ -248,8 +248,8 @@ services:
   # API Gateway (Go)
   api-gateway:
     build:
-      context: ../../services/api-gateway
-      dockerfile: Dockerfile
+      context: ../../services
+      dockerfile: api-gateway/Dockerfile
     container_name: deliveryhub-api-gateway
     environment:
       - PORT=${GATEWAY_PORT:-8080}
@@ -349,11 +349,11 @@ services:
     networks:
       - deliveryhub-network
 
-# Driver Service (Go)
+  # Driver Service (Go)
   driver-service:
     build:
-      context: ../../services/driver-service
-      dockerfile: Dockerfile
+      context: ../../services
+      dockerfile: driver-service/Dockerfile
     container_name: deliveryhub-driver-service
     environment:
       - PORT=${DRIVER_SERVICE_PORT:-8082}
@@ -410,8 +410,8 @@ services:
   # Dispatch Service (Go)
   dispatch-service:
     build:
-      context: ../../services/dispatch-service
-      dockerfile: Dockerfile
+      context: ../../services
+      dockerfile: dispatch-service/Dockerfile
     container_name: deliveryhub-dispatch-service
     environment:
       - PORT=${DISPATCH_SERVICE_PORT:-8083}
@@ -522,8 +522,8 @@ services:
   # AI Service (Go)
   ai-service:
     build:
-      context: ../../services/ai-service
-      dockerfile: Dockerfile
+      context: ../../services
+      dockerfile: ai-service/Dockerfile
     container_name: deliveryhub-ai-service
     environment:
       - PORT=${AI_SERVICE_PORT:-8085}

@@ -186,6 +186,9 @@ export interface DispatchStats {
 // ---- Notification types ----
 export type NotificationType = 'delivery' | 'driver' | 'system' | 'alert';
 
+/**
+ * Frontend-facing notification shape (used throughout the UI).
+ */
 export interface NotificationItem {
   id: string;
   type: NotificationType;
@@ -193,6 +196,26 @@ export interface NotificationItem {
   message: string;
   read: boolean;
   timestamp: string;
+}
+
+/**
+ * Raw shape returned by the notification-service backend.
+ * Fields map to the Java NotificationResponse record.
+ */
+export interface BackendNotificationResponse {
+  id: string;
+  deliveryId?: string;
+  recipientType?: string;
+  recipientId?: string;
+  channel?: string;       // EMAIL | SMS | PUSH | IN_APP
+  subject?: string;
+  body?: string;
+  templateName?: string;
+  status?: string;        // PENDING | SENT | FAILED
+  errorMessage?: string;
+  sentAt?: string;
+  retryCount?: number;
+  createdAt: string;
 }
 
 // ---- Frontend-only types ----

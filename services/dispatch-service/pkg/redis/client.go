@@ -2,6 +2,7 @@ package redis
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"time"
@@ -27,10 +28,15 @@ const (
 	processedEventTTL         = 24 * time.Hour
 
 	// Driver geo keys (shared with driver service)
-	driverGeoKey              = "drivers:geo"
-	driverStatusPrefix        = "driver:status:"
-	driverLocationPrefix      = "driver:location:"
+	driverGeoKey               = "drivers:geo"
+	driverStatusPrefix         = "driver:status:"
+	driverLocationPrefix       = "driver:location:"
 	locationFreshnessThreshold = 5 * time.Minute
+
+	// Dispatch events / stats keys (used by the HTTP API)
+	dispatchEventsListKey = "dispatch:events:list"
+	dispatchStatsKey      = "dispatch:stats"
+	eventsListMaxLen      = 200
 )
 
 func (d *DispatchRedisClient) AcquireDispatchLock(ctx context.Context, deliveryID uuid.UUID) (bool, error) {
@@ -143,4 +149,93 @@ func (d *DispatchRedisClient) isDriverAvailableAndFresh(ctx context.Context, dri
 	}
 
 	return true
+}
+
+// DispatchEventEntry is a JSON-serialisable dispatch event record stored in Redis.
+type DispatchEventEntry struct {
+	ID         string `json:"id"`
+	Type       string `json:"type"`
+	DeliveryID string `json:"deliveryId"`
+	DriverID   string `json:"driverId,omitempty"`
+	Message    string `json:"message"`
+	Timestamp  string `json:"timestamp"`
+}
+
+// StoreEvent persists a dispatch event in Redis so the HTTP API can serve it.
+func (d *DispatchRedisClient) StoreEvent(ctx context.Context, entry DispatchEventEntry) error {
+	b, err := json.Marshal(entry)
+	if err != nil {
+		return err
+	}
+
+	pipe := d.client.Pipeline()
+	pipe.LPush(ctx, dispatchEventsListKey, string(b))
+	pipe.LTrim(ctx, dispatchEventsListKey, 0, int64(eventsListMaxLen-1))
+	pipe.Expire(ctx, dispatchEventsListKey, 24*time.Hour)
+	_, err = pipe.Exec(ctx)
+	return err
+}
+
+// GetRecentEvents returns the most recent dispatch events from Redis.
+func (d *DispatchRedisClient) GetRecentEvents(ctx context.Context, limit int) ([]DispatchEventEntry, error) {
+	vals, err := d.client.LRange(ctx, dispatchEventsListKey, 0, int64(limit-1)).Result()
+	if err == redis.Nil || len(vals) == 0 {
+		return []DispatchEventEntry{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	events := make([]DispatchEventEntry, 0, len(vals))
+	for _, v := range vals {
+		var e DispatchEventEntry
+		if err := json.Unmarshal([]byte(v), &e); err == nil {
+			events = append(events, e)
+		}
+	}
+	return events, nil
+}
+
+// IncrStat increments a named counter in the dispatch stats hash.
+func (d *DispatchRedisClient) IncrStat(ctx context.Context, field string) error {
+	return d.client.HIncrBy(ctx, dispatchStatsKey, field, 1).Err()
+}
+
+// GetStats returns aggregate dispatch statistics from Redis.
+func (d *DispatchRedisClient) GetStats(ctx context.Context) (map[string]interface{}, error) {
+	vals, err := d.client.HGetAll(ctx, dispatchStatsKey).Result()
+	if err == redis.Nil || len(vals) == 0 {
+		return map[string]interface{}{
+			"started": 0, "assigned": 0, "completed": 0,
+			"failed": 0, "retried": 0, "successRate": 0.0,
+		}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	toInt := func(s string) int {
+		n, _ := strconv.Atoi(s)
+		return n
+	}
+
+	started := toInt(vals["started"])
+	assigned := toInt(vals["assigned"])
+	completed := toInt(vals["completed"])
+	failed := toInt(vals["failed"])
+	retried := toInt(vals["retried"])
+
+	var successRate float64
+	if started > 0 {
+		successRate = float64(completed) / float64(started) * 100
+	}
+
+	return map[string]interface{}{
+		"started":     started,
+		"assigned":    assigned,
+		"completed":   completed,
+		"failed":      failed,
+		"retried":     retried,
+		"successRate": successRate,
+	}, nil
 }
