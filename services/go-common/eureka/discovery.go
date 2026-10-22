@@ -79,7 +79,7 @@ func (sd *ServiceDiscovery) DoRequest(ctx context.Context, serviceName, method, 
 	}
 
 	fullURL := serviceURL.String() + path
-	req := sd.httpClient.R().SetContext(ctx).SetMethod(method).SetURL(fullURL)
+	req := sd.httpClient.R().SetContext(ctx)
 
 	if body != nil {
 		req.SetBody(body)
@@ -89,7 +89,7 @@ func (sd *ServiceDiscovery) DoRequest(ctx context.Context, serviceName, method, 
 		req.SetHeader(k, v)
 	}
 
-	return req.Send()
+	return req.Execute(method, fullURL)
 }
 
 // Get executes a GET request
@@ -119,17 +119,19 @@ func (sd *ServiceDiscovery) HealthCheck(ctx context.Context, serviceName string)
 		return fmt.Errorf("no instances found for service: %s", serviceName)
 	}
 
+	// Use a short-timeout client for health checks
+	healthClient := resty.New().SetTimeout(5 * time.Second)
+
 	for _, instance := range instances {
 		healthURL := instance.HealthCheckURL
 		if healthURL == "" {
 			healthURL = instance.GetInstanceURL() + "/health"
 		}
-		
-		resp, err := sd.httpClient.R().
+
+		resp, err := healthClient.R().
 			SetContext(ctx).
-			SetTimeout(5 * time.Second).
 			Get(healthURL)
-		
+
 		if err == nil && resp.StatusCode() == http.StatusOK {
 			return nil
 		}

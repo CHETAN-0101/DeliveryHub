@@ -1,8 +1,15 @@
 import axios from 'axios';
 
+// In development, Vite's proxy routes /api/* → localhost:8080 and /realms/* → localhost:8090.
+// Setting an absolute baseURL bypasses the Vite proxy and causes CORS errors.
+// Use an empty baseURL in dev (via Vite proxy) and the env var in production.
+const baseURL = import.meta.env.PROD
+  ? (import.meta.env.VITE_API_BASE_URL || '')
+  : '';
+
 // Create axios instance with base config
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080',
+  baseURL,
   timeout: 10000,
   headers: {
     'Content-Type': 'application/json',

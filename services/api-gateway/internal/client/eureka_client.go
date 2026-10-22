@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
-	"strings"
 	"sync"
 	"time"
 
@@ -121,20 +120,13 @@ func (sc *EurekaServiceClient) Handle(c *gin.Context) {
 	sc.proxy.ServeHTTP(c.Writer, c.Request)
 }
 
-// HandleWithPrefix proxies the request with path prefix rewriting
+// HandleWithPrefix proxies the request with the full path preserved.
+// Downstream services already include their own path prefix (e.g., /api/v1).
 func (sc *EurekaServiceClient) HandleWithPrefix(prefix string) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		originalPath := c.Request.URL.Path
-		c.Request.URL.Path = strings.TrimPrefix(originalPath, prefix)
-		if c.Request.URL.Path == "" {
-			c.Request.URL.Path = "/"
-		}
-		
-		c.Request.Header.Set("X-Original-Path", originalPath)
-		
+		c.Request.Header.Set("X-Original-Path", c.Request.URL.Path)
+		_ = prefix // kept for documentation purposes only
 		sc.Handle(c)
-		
-		c.Request.URL.Path = originalPath
 	}
 }
 

@@ -5,13 +5,12 @@ import (
 	"encoding/xml"
 	"fmt"
 	"net"
-	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/go-resty/resty/v2"
-	"github.com/google/uuid"
 )
 
 // Client is the Eureka client
@@ -44,7 +43,7 @@ func NewClient(config *ClientConfig) *Client {
 
 // getHostname returns the hostname
 func getHostname() (string, error) {
-	return net.LookupHost("")
+	return os.Hostname()
 }
 
 // getLocalIP returns the local IP address

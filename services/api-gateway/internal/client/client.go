@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
-	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -76,20 +75,12 @@ func (sc *ServiceClient) Handle(c *gin.Context) {
 
 func (sc *ServiceClient) HandleWithPrefix(prefix string) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// Rewrite path to remove the prefix
-		originalPath := c.Request.URL.Path
-		c.Request.URL.Path = strings.TrimPrefix(originalPath, prefix)
-		if c.Request.URL.Path == "" {
-			c.Request.URL.Path = "/"
-		}
-		
-		// Save original path for potential restoration
-		c.Request.Header.Set("X-Original-Path", originalPath)
-		
+		// Forward the full path as-is to the downstream service.
+		// Downstream services (e.g., order-service with context-path /api/v1)
+		// already expect the full path including /api/v1/... prefix.
+		c.Request.Header.Set("X-Original-Path", c.Request.URL.Path)
+		_ = prefix // prefix is kept for documentation purposes only
 		sc.Handle(c)
-		
-		// Restore original path
-		c.Request.URL.Path = originalPath
 	}
 }
 

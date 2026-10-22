@@ -3,6 +3,8 @@ package eureka
 import (
 	"encoding/xml"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 // Application represents an Eureka application

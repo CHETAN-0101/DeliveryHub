@@ -20,7 +20,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.UUID;
@@ -78,6 +78,70 @@ public class NotificationController {
 
         PageResponse<NotificationResponse> response = PageResponse.of(notifications.map(this::mapToResponse));
         return ResponseEntity.ok(response);
+    }
+
+    /**
+     * Mark a single notification as READ (sent).
+     * Frontend calls: PATCH /api/v1/notifications/{id}/read
+     */
+    @PatchMapping(value = "/{id}/read", produces = MediaType.APPLICATION_JSON_VALUE)
+    @Operation(summary = "Mark a notification as read")
+    @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "Notification marked as read"),
+        @ApiResponse(responseCode = "401", description = "Unauthorized"),
+        @ApiResponse(responseCode = "404", description = "Notification not found")
+    })
+    @Transactional
+    public ResponseEntity<java.util.Map<String, String>> markRead(
+            @Parameter(description = "Notification ID") @PathVariable UUID id) {
+
+        notificationRepository.findById(id).ifPresent(n -> {
+            n.markSent(); // uses domain method which sets status=SENT and sentAt=now()
+            notificationRepository.save(n);
+        });
+
+        return ResponseEntity.ok(java.util.Map.of("message", "Notification marked as read"));
+    }
+
+    /**
+     * Mark all notifications as READ.
+     * Frontend calls: POST /api/v1/notifications/read-all
+     */
+    @PostMapping(value = "/read-all", produces = MediaType.APPLICATION_JSON_VALUE)
+    @Operation(summary = "Mark all notifications as read")
+    @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "All notifications marked as read"),
+        @ApiResponse(responseCode = "401", description = "Unauthorized")
+    })
+    @Transactional
+    public ResponseEntity<java.util.Map<String, String>> markAllRead() {
+        // Mark all PENDING or FAILED notifications as SENT
+        java.util.List<Notification> toUpdate = notificationRepository.findAll().stream()
+                .filter(n -> n.getStatus() == NotificationStatus.PENDING
+                          || n.getStatus() == NotificationStatus.FAILED)
+                .peek(Notification::markSent)
+                .collect(java.util.stream.Collectors.toList());
+        notificationRepository.saveAll(toUpdate);
+        return ResponseEntity.ok(java.util.Map.of("message", "All notifications marked as read"));
+    }
+
+    /**
+     * Dismiss (delete) a notification.
+     * Frontend calls: DELETE /api/v1/notifications/{id}
+     */
+    @DeleteMapping(value = "/{id}", produces = MediaType.APPLICATION_JSON_VALUE)
+    @Operation(summary = "Dismiss (delete) a notification")
+    @ApiResponses({
+        @ApiResponse(responseCode = "204", description = "Notification dismissed"),
+        @ApiResponse(responseCode = "401", description = "Unauthorized"),
+        @ApiResponse(responseCode = "404", description = "Notification not found")
+    })
+    @Transactional
+    public ResponseEntity<Void> dismiss(
+            @Parameter(description = "Notification ID") @PathVariable UUID id) {
+
+        notificationRepository.deleteById(id);
+        return ResponseEntity.noContent().build();
     }
 
     private NotificationResponse mapToResponse(Notification notification) {
