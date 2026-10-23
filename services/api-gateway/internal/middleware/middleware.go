@@ -2,8 +2,14 @@ package middleware
 
 import (
 	"context"
+	"crypto/rsa"
+	"encoding/base64"
+	"encoding/json"
+	"errors"
+	"math/big"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -23,18 +29,48 @@ const (
 
 type JWTClaims struct {
 	UserID   string   `json:"sub"`
-	Roles    []string `json:"roles"`
+	Roles    []string `json:"realm_access.roles"`
 	Username string   `json:"preferred_username"`
+	Issuer   string   `json:"iss"`
+	Audience []string `json:"aud"`
 	jwt.RegisteredClaims
 }
 
-type AuthMiddleware struct {
-	jwksURL string
+type JWKS struct {
+	Keys []JWK `json:"keys"`
 }
 
-func NewAuthMiddleware(keycloakURL, realm string) *AuthMiddleware {
+type JWK struct {
+	Kty string   `json:"kty"`
+	Kid string   `json:"kid"`
+	Use string   `json:"use"`
+	N   string   `json:"n"`
+	E   string   `json:"e"`
+	Alg string   `json:"alg"`
+}
+
+type AuthMiddleware struct {
+	jwksURL       string
+	expectedIssuer string
+	expectedAudience string
+	keyCache       map[string]*rsa.PublicKey
+	cacheMutex     sync.RWMutex
+	cacheExpiry    time.Time
+	httpClient     *http.Client
+}
+
+func NewAuthMiddleware(keycloakURL, realm, clientID string) *AuthMiddleware {
 	jwksURL := keycloakURL + "/realms/" + realm + "/protocol/openid-connect/certs"
-	return &AuthMiddleware{jwksURL: jwksURL}
+	issuer := keycloakURL + "/realms/" + realm
+	return &AuthMiddleware{
+		jwksURL:          jwksURL,
+		expectedIssuer:   issuer,
+		expectedAudience: clientID,
+		keyCache:         make(map[string]*rsa.PublicKey),
+		httpClient: &http.Client{
+			Timeout: 10 * time.Second,
+		},
+	}
 }
 
 func (m *AuthMiddleware) Validate() gin.HandlerFunc {
@@ -52,21 +88,11 @@ func (m *AuthMiddleware) Validate() gin.HandlerFunc {
 
 		tokenString := strings.TrimPrefix(authHeader, BearerPrefix)
 
-		// In production, fetch JWKS from Keycloak and validate properly
-		// For now, we'll parse without verification (dev mode)
-		// TODO: Implement proper JWKS validation
-		token, _, err := new(jwt.Parser).ParseUnverified(tokenString, &JWTClaims{})
+		// Parse token header to get kid
+		parser := jwt.NewParser(jwt.WithoutClaimsValidation())
+		token, _, err := parser.ParseUnverified(tokenString, &JWTClaims{})
 		if err != nil {
-			// Non-JWT tokens (e.g., demo-token-...) are allowed through with an
-			// anonymous context. The downstream services provide their own auth.
-			if strings.HasPrefix(tokenString, "demo-token-") {
-				c.Set(UserIDKey, "demo-user")
-				c.Set(RolesKey, []string{"admin", "customer", "driver", "dispatcher"})
-				c.Set(UsernameKey, "demo")
-				c.Next()
-				return
-			}
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid token"})
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid token format"})
 			return
 		}
 
@@ -76,9 +102,55 @@ func (m *AuthMiddleware) Validate() gin.HandlerFunc {
 			return
 		}
 
-		// Check expiration
+		// Validate standard claims
 		if claims.ExpiresAt != nil && claims.ExpiresAt.Time.Before(time.Now()) {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "token expired"})
+			return
+		}
+
+		// Validate issuer
+		if m.expectedIssuer != "" && claims.Issuer != m.expectedIssuer {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid token issuer"})
+			return
+		}
+
+		// Validate audience
+		if m.expectedAudience != "" {
+			audienceValid := false
+			for _, aud := range claims.Audience {
+				if aud == m.expectedAudience {
+					audienceValid = true
+					break
+				}
+			}
+			if !audienceValid {
+				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid token audience"})
+				return
+			}
+		}
+
+		// Get the signing key
+		kid, ok := token.Header["kid"].(string)
+		if !ok {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "missing key ID in token header"})
+			return
+		}
+
+		publicKey, err := m.getSigningKey(kid)
+		if err != nil {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unable to verify token signature"})
+			return
+		}
+
+		// Verify token signature
+		_, err = jwt.ParseWithClaims(tokenString, &JWTClaims{}, func(token *jwt.Token) (interface{}, error) {
+			if _, ok := token.Method.(*jwt.SigningMethodRSA); !ok {
+				return nil, errors.New("unexpected signing method")
+			}
+			return publicKey, nil
+		})
+		if err != nil {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid token signature"})
 			return
 		}
 
@@ -86,6 +158,116 @@ func (m *AuthMiddleware) Validate() gin.HandlerFunc {
 		c.Set(UserIDKey, claims.UserID)
 		c.Set(RolesKey, claims.Roles)
 		c.Set(UsernameKey, claims.Username)
+
+		c.Next()
+	}
+}
+
+func (m *AuthMiddleware) getSigningKey(kid string) (*rsa.PublicKey, error) {
+	// Check cache first
+	m.cacheMutex.RLock()
+	key, exists := m.keyCache[kid]
+	if exists && time.Now().Before(m.cacheExpiry) {
+		m.cacheMutex.RUnlock()
+		return key, nil
+	}
+	m.cacheMutex.RUnlock()
+
+	// Fetch JWKS
+	m.cacheMutex.Lock()
+	defer m.cacheMutex.Unlock()
+
+	// Double-check after acquiring lock
+	key, exists := m.keyCache[kid]
+	if exists && time.Now().Before(m.cacheExpiry) {
+		return key, nil
+	}
+
+	resp, err := m.httpClient.Get(m.jwksURL)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, errors.New("failed to fetch JWKS")
+	}
+
+	var jwks JWKS
+	if err := json.NewDecoder(resp.Body).Decode(&jwks); err != nil {
+		return nil, err
+	}
+
+	for _, jwk := range jwks.Keys {
+		if jwk.Kid == kid && jwk.Kty == "RSA" {
+			publicKey, err := parseRSAPublicKey(jwk.N, jwk.E)
+			if err != nil {
+				continue
+			}
+			m.keyCache[kid] = publicKey
+			m.cacheExpiry = time.Now().Add(1 * time.Hour) // Cache for 1 hour
+			return publicKey, nil
+		}
+	}
+
+	return nil, errors.New("key not found in JWKS")
+}
+
+func parseRSAPublicKey(n, e string) (*rsa.PublicKey, error) {
+	// Decode base64url encoded values
+	nBytes, err := base64.RawURLEncoding.DecodeString(n)
+	if err != nil {
+		return nil, err
+	}
+	eBytes, err := base64.RawURLEncoding.DecodeString(e)
+	if err != nil {
+		return nil, err
+	}
+
+	// Convert exponent
+	exp := 0
+	for _, b := range eBytes {
+		exp = exp*256 + int(b)
+	}
+
+	// Create public key
+	return &rsa.PublicKey{
+		N: new(big.Int).SetBytes(nBytes),
+		E: exp,
+	}, nil
+}
+
+func (m *AuthMiddleware) RequireRoles(allowedRoles ...string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		rolesVal, exists := c.Get(RolesKey)
+		if !exists {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "no roles found"})
+			return
+		}
+
+		userRoles, ok := rolesVal.([]string)
+		if !ok {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "invalid roles format"})
+			return
+		}
+
+		hasRole := false
+		for _, userRole := range userRoles {
+			for _, allowed := range allowedRoles {
+				if userRole == allowed {
+					hasRole = true
+					break
+				}
+			}
+			if hasRole {
+				break
+			}
+		}
+
+		if !hasRole {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "insufficient permissions"})
+			return
+		}
 
 		c.Next()
 	}

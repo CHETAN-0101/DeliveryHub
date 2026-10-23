@@ -2,7 +2,6 @@ import { NavLink, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard,
   Package,
-  Truck,
   Cpu,
   Bell,
   Settings,
@@ -10,6 +9,8 @@ import {
   Zap,
   Activity,
   MessageSquare,
+  Users,
+  ClipboardList,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
@@ -18,26 +19,31 @@ interface NavItem {
   path: string;
   icon: React.ReactNode;
   badge?: number;
+  roles: string[];
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { label: 'Dashboard', path: '/', icon: <LayoutDashboard size={18} /> },
-  { label: 'Deliveries', path: '/deliveries', icon: <Package size={18} /> },
-  { label: 'Drivers', path: '/drivers', icon: <Truck size={18} /> },
-  { label: 'Driver Dashboard', path: '/driver-dashboard', icon: <Activity size={18} /> },
-  { label: 'Dispatch', path: '/dispatch', icon: <Activity size={18} /> },
-  { label: 'AI Insights', path: '/ai', icon: <Cpu size={18} /> },
-  { label: 'AI Assistant', path: '/assistant', icon: <MessageSquare size={18} /> },
-  { label: 'Notifications', path: '/notifications', icon: <Bell size={18} />, badge: 3 },
+  { label: 'Dashboard', path: '/', icon: <LayoutDashboard size={18} />, roles: ['customer', 'driver', 'dispatcher', 'admin'] },
+  { label: 'Deliveries', path: '/deliveries', icon: <Package size={18} />, roles: ['customer', 'dispatcher', 'admin'] },
+  { label: 'Drivers', path: '/drivers', icon: <Users size={18} />, roles: ['dispatcher', 'admin'] },
+  { label: 'Driver Dashboard', path: '/driver-dashboard', icon: <Activity size={18} />, roles: ['driver', 'admin'] },
+  { label: 'Dispatch', path: '/dispatch', icon: <ClipboardList size={18} />, roles: ['dispatcher', 'admin'] },
+  { label: 'AI Insights', path: '/ai', icon: <Cpu size={18} />, roles: ['customer', 'driver', 'dispatcher', 'admin'] },
+  { label: 'AI Assistant', path: '/assistant', icon: <MessageSquare size={18} />, roles: ['customer', 'driver', 'dispatcher', 'admin'] },
+  { label: 'Notifications', path: '/notifications', icon: <Bell size={18} />, badge: 3, roles: ['customer', 'driver', 'dispatcher', 'admin'] },
 ];
 
 const BOTTOM_ITEMS: NavItem[] = [
-  { label: 'Settings', path: '/settings', icon: <Settings size={18} /> },
+  { label: 'Settings', path: '/settings', icon: <Settings size={18} />, roles: ['customer', 'driver', 'dispatcher', 'admin'] },
 ];
 
 export default function Sidebar() {
   const { user, logout } = useAuth();
   const location = useLocation();
+
+  const userRole = user?.role || 'customer';
+  const filteredNavItems = NAV_ITEMS.filter(item => item.roles.includes(userRole));
+  const filteredBottomItems = BOTTOM_ITEMS.filter(item => item.roles.includes(userRole));
 
   return (
     <aside
@@ -96,7 +102,7 @@ export default function Sidebar() {
           Main Menu
         </div>
 
-        {NAV_ITEMS.map((item) => (
+        {filteredNavItems.map((item) => (
           <NavLink
             key={item.path}
             to={item.path}
@@ -157,7 +163,7 @@ export default function Sidebar() {
           System
         </div>
 
-        {BOTTOM_ITEMS.map((item) => (
+        {filteredBottomItems.map((item) => (
           <NavLink
             key={item.path}
             to={item.path}

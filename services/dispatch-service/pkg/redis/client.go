@@ -4,9 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strconv"
+	"log"
 	"time"
 
+	"github.com/deliveryhub/dispatch-service/internal/model"
 	"github.com/go-redis/redis/v8"
 	"github.com/google/uuid"
 )
@@ -19,223 +20,160 @@ func NewDispatchRedisClient(client *redis.Client) *DispatchRedisClient {
 	return &DispatchRedisClient{client: client}
 }
 
-const (
-	dispatchLockPrefix        = "dispatch:lock:"
-	dispatchAssignmentPrefix  = "dispatch:assignment:"
-	dispatchProcessedEvents   = "dispatch:processed:"
-	lockTTL                   = 30 * time.Second
-	assignmentTTL             = 10 * time.Minute
-	processedEventTTL         = 24 * time.Hour
-
-	// Driver geo keys (shared with driver service)
-	driverGeoKey               = "drivers:geo"
-	driverStatusPrefix         = "driver:status:"
-	driverLocationPrefix       = "driver:location:"
-	locationFreshnessThreshold = 5 * time.Minute
-
-	// Dispatch events / stats keys (used by the HTTP API)
-	dispatchEventsListKey = "dispatch:events:list"
-	dispatchStatsKey      = "dispatch:stats"
-	eventsListMaxLen      = 200
-)
-
-func (d *DispatchRedisClient) AcquireDispatchLock(ctx context.Context, deliveryID uuid.UUID) (bool, error) {
-	key := dispatchLockPrefix + deliveryID.String()
-	return d.client.SetNX(ctx, key, "1", lockTTL).Result()
+// Event processing tracking
+func (r *DispatchRedisClient) IsEventProcessed(ctx context.Context, eventID uuid.UUID) (bool, error) {
+	key := fmt.Sprintf("event:processed:%s", eventID.String())
+	result, err := r.client.Exists(ctx, key).Result()
+	return result > 0, err
 }
 
-func (d *DispatchRedisClient) ReleaseDispatchLock(ctx context.Context, deliveryID uuid.UUID) error {
-	key := dispatchLockPrefix + deliveryID.String()
-	return d.client.Del(ctx, key).Err()
+func (r *DispatchRedisClient) MarkEventProcessed(ctx context.Context, eventID uuid.UUID) error {
+	key := fmt.Sprintf("event:processed:%s", eventID.String())
+	return r.client.Set(ctx, key, "1", 24*time.Hour).Err()
 }
 
-func (d *DispatchRedisClient) SaveAssignment(ctx context.Context, deliveryID, driverID uuid.UUID) error {
-	key := dispatchAssignmentPrefix + deliveryID.String()
-	data := fmt.Sprintf("%s|%s|%d", deliveryID.String(), driverID.String(), time.Now().Unix())
-	return d.client.Set(ctx, key, data, assignmentTTL).Err()
+// Dispatch locking
+func (r *DispatchRedisClient) AcquireDispatchLock(ctx context.Context, deliveryID uuid.UUID) (bool, error) {
+	key := fmt.Sprintf("lock:dispatch:%s", deliveryID.String())
+	return r.client.SetNX(ctx, key, "1", 30*time.Second).Result()
 }
 
-func (d *DispatchRedisClient) GetAssignment(ctx context.Context, deliveryID uuid.UUID) (driverID uuid.UUID, found bool, err error) {
-	key := dispatchAssignmentPrefix + deliveryID.String()
-	val, err := d.client.Get(ctx, key).Result()
-	if err == redis.Nil {
-		return uuid.Nil, false, nil
-	}
-	if err != nil {
-		return uuid.Nil, false, err
-	}
-
-	// Parse format: deliveryID|driverID|timestamp
-	var dID, drID string
-	var ts int64
-	_, err = fmt.Sscanf(val, "%s|%s|%d", &dID, &drID, &ts)
-	if err != nil {
-		return uuid.Nil, false, err
-	}
-
-	driverID, _ = uuid.Parse(drID)
-	return driverID, true, nil
+func (r *DispatchRedisClient) ReleaseDispatchLock(ctx context.Context, deliveryID uuid.UUID) error {
+	key := fmt.Sprintf("lock:dispatch:%s", deliveryID.String())
+	return r.client.Del(ctx, key).Err()
 }
 
-func (d *DispatchRedisClient) MarkEventProcessed(ctx context.Context, eventID uuid.UUID) error {
-	key := dispatchProcessedEvents + eventID.String()
-	return d.client.Set(ctx, key, "1", processedEventTTL).Err()
-}
-
-func (d *DispatchRedisClient) IsEventProcessed(ctx context.Context, eventID uuid.UUID) (bool, error) {
-	key := dispatchProcessedEvents + eventID.String()
-	_, err := d.client.Get(ctx, key).Result()
-	if err == redis.Nil {
-		return false, nil
+// Assignment storage
+func (r *DispatchRedisClient) SaveAssignment(ctx context.Context, deliveryID, driverID uuid.UUID) error {
+	key := fmt.Sprintf("assignment:%s", deliveryID.String())
+	data := map[string]interface{}{
+		"delivery_id": deliveryID.String(),
+		"driver_id":   driverID.String(),
+		"assigned_at": time.Now().Unix(),
+		"status":      "PENDING",
 	}
-	if err != nil {
-		return false, err
-	}
-	return true, nil
-}
-
-// FindNearbyAvailableDrivers finds drivers near a location using Redis GEOSEARCH
-// Returns driver IDs that are AVAILABLE and have fresh location data
-func (d *DispatchRedisClient) FindNearbyAvailableDrivers(ctx context.Context, lat, lon, radiusKm float64) ([]string, error) {
-	// Search for nearby drivers using GEOSEARCH
-	result, err := d.client.GeoSearch(ctx, driverGeoKey, &redis.GeoSearchQuery{
-		Longitude:  lon,
-		Latitude:   lat,
-		Radius:     radiusKm,
-		RadiusUnit: "km",
-		Sort:       "ASC",
-		Count:      50,
-	}).Result()
-
-	if err != nil {
-		return nil, err
-	}
-
-	// Filter by availability and location freshness
-	var availableDrivers []string
-	for _, driverID := range result {
-		if d.isDriverAvailableAndFresh(ctx, driverID) {
-			availableDrivers = append(availableDrivers, driverID)
-		}
-	}
-
-	return availableDrivers, nil
-}
-
-func (d *DispatchRedisClient) isDriverAvailableAndFresh(ctx context.Context, driverID string) bool {
-	// Check status
-	statusKey := driverStatusPrefix + driverID
-	status, err := d.client.Get(ctx, statusKey).Result()
-	if err != nil || status != "AVAILABLE" {
-		return false
-	}
-
-	// Check location freshness
-	locKey := driverLocationPrefix + driverID
-	lastUpdate, err := d.client.Get(ctx, locKey+":updated").Result()
-	if err != nil {
-		return false
-	}
-
-	// Parse Unix timestamp
-	updateSec, err := strconv.ParseInt(lastUpdate, 10, 64)
-	if err != nil {
-		return false
-	}
-
-	updateTime := time.Unix(updateSec, 0)
-	if time.Since(updateTime) > locationFreshnessThreshold {
-		return false
-	}
-
-	return true
-}
-
-// DispatchEventEntry is a JSON-serialisable dispatch event record stored in Redis.
-type DispatchEventEntry struct {
-	ID         string `json:"id"`
-	Type       string `json:"type"`
-	DeliveryID string `json:"deliveryId"`
-	DriverID   string `json:"driverId,omitempty"`
-	Message    string `json:"message"`
-	Timestamp  string `json:"timestamp"`
-}
-
-// StoreEvent persists a dispatch event in Redis so the HTTP API can serve it.
-func (d *DispatchRedisClient) StoreEvent(ctx context.Context, entry DispatchEventEntry) error {
-	b, err := json.Marshal(entry)
+	dataJSON, err := json.Marshal(data)
 	if err != nil {
 		return err
 	}
-
-	pipe := d.client.Pipeline()
-	pipe.LPush(ctx, dispatchEventsListKey, string(b))
-	pipe.LTrim(ctx, dispatchEventsListKey, 0, int64(eventsListMaxLen-1))
-	pipe.Expire(ctx, dispatchEventsListKey, 24*time.Hour)
-	_, err = pipe.Exec(ctx)
-	return err
+	return r.client.Set(ctx, key, dataJSON, 24*time.Hour).Err()
 }
 
-// GetRecentEvents returns the most recent dispatch events from Redis.
-func (d *DispatchRedisClient) GetRecentEvents(ctx context.Context, limit int) ([]DispatchEventEntry, error) {
-	vals, err := d.client.LRange(ctx, dispatchEventsListKey, 0, int64(limit-1)).Result()
-	if err == redis.Nil || len(vals) == 0 {
-		return []DispatchEventEntry{}, nil
+func (r *DispatchRedisClient) GetAssignment(ctx context.Context, deliveryID uuid.UUID) (*model.DispatchAssignment, error) {
+	key := fmt.Sprintf("assignment:%s", deliveryID.String())
+	data, err := r.client.Get(ctx, key).Result()
+	if err == redis.Nil {
+		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
 
-	events := make([]DispatchEventEntry, 0, len(vals))
-	for _, v := range vals {
-		var e DispatchEventEntry
-		if err := json.Unmarshal([]byte(v), &e); err == nil {
-			events = append(events, e)
+	var assignment model.DispatchAssignment
+	if err := json.Unmarshal([]byte(data), &assignment); err != nil {
+		return nil, err
+	}
+	return &assignment, nil
+}
+
+// Saga state management
+func (r *DispatchRedisClient) SaveSaga(ctx context.Context, saga *model.AssignmentSaga) error {
+	key := fmt.Sprintf("saga:%s", saga.SagaID.String())
+	data, err := json.Marshal(saga)
+	if err != nil {
+		return err
+	}
+	return r.client.Set(ctx, key, data, 24*time.Hour).Err()
+}
+
+func (r *DispatchRedisClient) GetSaga(ctx context.Context, sagaID uuid.UUID) (*model.AssignmentSaga, error) {
+	key := fmt.Sprintf("saga:%s", sagaID.String())
+	data, err := r.client.Get(ctx, key).Result()
+	if err == redis.Nil {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	var saga model.AssignmentSaga
+	if err := json.Unmarshal([]byte(data), &saga); err != nil {
+		return nil, err
+	}
+	return &saga, nil
+}
+
+func (r *DispatchRedisClient) UpdateSagaState(ctx context.Context, sagaID uuid.UUID, state model.SagaState) error {
+	key := fmt.Sprintf("saga:%s", sagaID.String())
+	saga, err := r.GetSaga(ctx, sagaID)
+	if err != nil {
+		return err
+	}
+	if saga == nil {
+		return fmt.Errorf("saga not found: %s", sagaID)
+	}
+
+	saga.State = state
+	saga.UpdatedAt = time.Now()
+	if state == model.SagaStateCompleted || state == model.SagaStateFailed {
+		now := time.Now()
+		saga.CompletedAt = &now
+	}
+	return r.SaveSaga(ctx, saga)
+}
+
+// Dead Letter Queue
+func (r *DispatchRedisClient) AddToDLQ(ctx context.Context, event *model.DeadLetterEvent) error {
+	key := fmt.Sprintf("dlq:%s", event.OriginalTopic)
+	data, err := json.Marshal(event)
+	if err != nil {
+		return err
+	}
+	return r.client.LPush(ctx, key, data).Err()
+}
+
+func (r *DispatchRedisClient) GetDLQEvents(ctx context.Context, topic string, limit int64) ([]*model.DeadLetterEvent, error) {
+	key := fmt.Sprintf("dlq:%s", topic)
+	values, err := r.client.LRange(ctx, key, 0, limit-1).Result()
+	if err != nil {
+		return nil, err
+	}
+
+	var events []*model.DeadLetterEvent
+	for _, v := range values {
+		var event model.DeadLetterEvent
+		if err := json.Unmarshal([]byte(v), &event); err == nil {
+			events = append(events, &event)
 		}
 	}
 	return events, nil
 }
 
-// IncrStat increments a named counter in the dispatch stats hash.
-func (d *DispatchRedisClient) IncrStat(ctx context.Context, field string) error {
-	return d.client.HIncrBy(ctx, dispatchStatsKey, field, 1).Err()
+func (r *DispatchRedisClient) RemoveFromDLQ(ctx context.Context, topic string, event *model.DeadLetterEvent) error {
+	key := fmt.Sprintf("dlq:%s", topic)
+	data, err := json.Marshal(event)
+	if err != nil {
+		return err
+	}
+	return r.client.LRem(ctx, key, 1, data).Err()
 }
 
-// GetStats returns aggregate dispatch statistics from Redis.
-func (d *DispatchRedisClient) GetStats(ctx context.Context) (map[string]interface{}, error) {
-	vals, err := d.client.HGetAll(ctx, dispatchStatsKey).Result()
-	if err == redis.Nil || len(vals) == 0 {
-		return map[string]interface{}{
-			"started": 0, "assigned": 0, "completed": 0,
-			"failed": 0, "retried": 0, "successRate": 0.0,
-		}, nil
-	}
+// Retry tracking
+func (r *DispatchRedisClient) IncrementRetryCount(ctx context.Context, eventID uuid.UUID) (int, error) {
+	key := fmt.Sprintf("retry:%s", eventID.String())
+	count, err := r.client.Incr(ctx, key).Result()
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
+	r.client.Expire(ctx, key, 24*time.Hour)
+	return int(count), err
+}
 
-	toInt := func(s string) int {
-		n, _ := strconv.Atoi(s)
-		return n
+func (r *DispatchRedisClient) GetRetryCount(ctx context.Context, eventID uuid.UUID) (int, error) {
+	key := fmt.Sprintf("retry:%s", eventID.String())
+	count, err := r.client.Get(ctx, key).Int()
+	if err == redis.Nil {
+		return 0, nil
 	}
-
-	started := toInt(vals["started"])
-	assigned := toInt(vals["assigned"])
-	completed := toInt(vals["completed"])
-	failed := toInt(vals["failed"])
-	retried := toInt(vals["retried"])
-
-	var successRate float64
-	if started > 0 {
-		successRate = float64(completed) / float64(started) * 100
-	}
-
-	return map[string]interface{}{
-		"started":     started,
-		"assigned":    assigned,
-		"completed":   completed,
-		"failed":      failed,
-		"retried":     retried,
-		"successRate": successRate,
-	}, nil
+	return count, err
 }

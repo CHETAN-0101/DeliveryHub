@@ -62,7 +62,7 @@ func main() {
 	rateLimiter := ratelimit.NewRateLimiter(redisClient, cfg.RateLimitRPS, cfg.RateLimitBurst)
 
 	// Initialize auth middleware
-	authMiddleware := middleware.NewAuthMiddleware(cfg.KeycloakURL, cfg.KeycloakRealm)
+	authMiddleware := middleware.NewAuthMiddleware(cfg.KeycloakURL, cfg.KeycloakRealm, cfg.KeycloakClientID)
 
 	// Initialize Eureka client for service discovery
 	var eurekaClient *eureka.Client

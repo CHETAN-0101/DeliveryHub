@@ -191,6 +191,7 @@ export default function LoginPage() {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
             {[
               { role: 'admin' as const, label: '👑 Admin', desc: 'Full access' },
+              { role: 'dispatcher' as const, label: '📋 Dispatcher', desc: 'Manage assignments' },
               { role: 'customer' as const, label: '👤 Customer', desc: 'Order deliveries' },
               { role: 'driver' as const, label: '🚗 Driver', desc: 'Manage status' },
             ].map((d) => (
