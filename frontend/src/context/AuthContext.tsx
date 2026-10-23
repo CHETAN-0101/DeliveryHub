@@ -5,7 +5,7 @@ interface AuthUser {
   id: string;
   username: string;
   email: string;
-  role: 'customer' | 'admin' | 'driver';
+  role: 'customer' | 'admin' | 'driver' | 'dispatcher';
   name: string;
 }
 
@@ -21,7 +21,7 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-// Demo users for offline/demo mode
+// Demo users for offline/demo mode (only used when Keycloak is unreachable)
 const DEMO_USERS: Record<string, AuthUser> = {
   admin: {
     id: 'admin-001',
@@ -43,6 +43,13 @@ const DEMO_USERS: Record<string, AuthUser> = {
     email: 'driver1@deliveryhub.com',
     role: 'driver',
     name: 'John Driver',
+  },
+  dispatcher: {
+    id: 'dispatcher-001',
+    username: 'dispatcher1',
+    email: 'dispatcher1@deliveryhub.com',
+    role: 'dispatcher',
+    name: 'Sarah Dispatcher',
   },
 };
 
@@ -110,13 +117,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const accessToken: string = res.data.access_token;
       const payload = parseJwtPayload(accessToken);
 
+      const realmRoles = (payload.realm_access as { roles?: string[] })?.roles ?? [];
+      const validRoles = realmRoles.filter((r) => ['admin', 'customer', 'driver', 'dispatcher'].includes(r));
+      const primaryRole = validRoles[0] || 'customer';
+
       const authUser: AuthUser = {
         id: (payload.sub as string) || username,
         username,
         email: (payload.email as string) || `${username}@deliveryhub.com`,
-        role: ((payload.realm_access as { roles?: string[] })?.roles?.find(
-          (r) => ['admin', 'customer', 'driver'].includes(r)
-        ) as AuthUser['role']) || 'customer',
+        role: primaryRole as AuthUser['role'],
         name: (payload.name as string) || username,
       };
 
@@ -124,9 +133,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return;
     } catch {
       // Keycloak unreachable or credentials wrong → fall through to demo mode
+      console.warn('Keycloak login failed, falling back to demo mode');
     }
 
-    // 2) Demo / offline fallback — accept any credentials
+    // 2) Demo / offline fallback — only for specific demo users
     const demoUser = DEMO_USERS[username] ?? DEMO_USERS.customer;
     const demoToken = `demo-token-${Date.now()}`;
     _persist(demoUser, demoToken, true);
