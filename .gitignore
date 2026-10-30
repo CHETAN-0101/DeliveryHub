@@ -1,0 +1,8 @@
+﻿# Protect sensitive environment variables
+.env
+target/*
+*.log
+/.idea/
+/.vscode
+/.hkt
+docker-compose.yml.override
