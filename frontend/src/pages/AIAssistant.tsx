@@ -84,7 +84,11 @@ export default function AIAssistantPage() {
     try {
       if (isDemoMode) throw new Error('demo');
 
-      const res = await aiApi.askAssistant({ question: text });
+      const history = messages
+        .filter((message) => message.id !== '0')
+        .slice(-90)
+        .map(({ role, content }) => ({ role, content }));
+      const res = await aiApi.askAssistant({ question: text, history });
       const aiMsg: Message = {
         id: _nextId(),
         role: 'assistant',
@@ -153,7 +157,7 @@ export default function AIAssistantPage() {
               <div style={{ fontWeight: 600, fontSize: 14 }}>DeliveryHub AI</div>
               <div style={{ fontSize: 11, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 4 }}>
                 <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--accent-emerald)', display: 'inline-block', animation: 'dotPulse 2s infinite' }} />
-                {isDemoMode ? 'Demo Mode · Local Responses' : 'Online · GPT-4 · POST /api/v1/ai/assistant'}
+                {isDemoMode ? 'Demo Mode · Local Responses' : 'Online · Cerebras · POST /api/v1/ai/assistant'}
               </div>
             </div>
             {isDemoMode && (

@@ -225,7 +225,9 @@ func main() {
 }
 
 // getServiceClient returns the appropriate service client (Eureka or static)
-func getServiceClient(eurekaClients map[string]*client.EurekaServiceClient, serviceName, fallbackURL, fallbackName string) interface{ Handle(gin.HandlerFunc) interface{ HandleWithPrefix(string) gin.HandlerFunc } } {
+func getServiceClient(eurekaClients map[string]*client.EurekaServiceClient, serviceName, fallbackURL, fallbackName string) interface {
+	HandleWithPrefix(string) gin.HandlerFunc
+} {
 	if eurekaClients != nil {
 		if sc, ok := eurekaClients[serviceName]; ok {
 			return sc

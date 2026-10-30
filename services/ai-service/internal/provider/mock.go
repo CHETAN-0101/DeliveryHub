@@ -190,23 +190,27 @@ func (m *MockAIProvider) AskAssistant(ctx context.Context, req AssistantRequest)
 }
 
 
-// ExternalAIProvider is a placeholder for real AI integration
+// ExternalAIProvider calls an OpenAI-compatible chat completions API.
 type ExternalAIProvider struct {
-	apiKey  string
-	baseURL string
-	model   string
+	apiKey      string
+	baseURL     string
+	model       string
+	temperature float64
+	maxTurns    int
 }
 
-func NewExternalAIProvider(apiKey, baseURL, model string) *ExternalAIProvider {
+func NewExternalAIProvider(apiKey, baseURL, model string, temperature float64, maxTurns int) *ExternalAIProvider {
 	return &ExternalAIProvider{
-		apiKey:  apiKey,
-		baseURL: baseURL,
-		model:   model,
+		apiKey:      apiKey,
+		baseURL:     baseURL,
+		model:       model,
+		temperature: temperature,
+		maxTurns: maxTurns,
 	}
 }
 
 func (e *ExternalAIProvider) Name() string {
-	return "EXTERNAL"
+	return "CEREBRAS"
 }
 
 func (e *ExternalAIProvider) PredictETA(ctx context.Context, req ETARequest) (ETAResponse, error) {
@@ -220,5 +224,5 @@ func (e *ExternalAIProvider) AnalyzeRisk(ctx context.Context, req RiskRequest) (
 }
 
 func (e *ExternalAIProvider) AskAssistant(ctx context.Context, req AssistantRequest) (AssistantResponse, error) {
-	return NewMockAIProvider().AskAssistant(ctx, req)
+	return e.chatCompletion(ctx, req)
 }

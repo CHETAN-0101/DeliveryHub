@@ -9,7 +9,7 @@ import (
 	"github.com/google/uuid"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	drivergrpc "github.com/deliveryhub/driver-service/internal/grpc"
+	drivergrpc "github.com/deliveryhub/go-common/drivergrpc"
 )
 
 // DriverServiceServer implements the gRPC service for driver operations

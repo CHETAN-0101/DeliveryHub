@@ -6,6 +6,17 @@ import (
 	"github.com/google/uuid"
 )
 
+type Driver struct {
+	ID               uuid.UUID
+	Name             string
+	VehicleType      string
+	LicensePlate     string
+	CurrentLatitude  float64
+	CurrentLongitude float64
+	Rating           float64
+	Status           string
+}
+
 type DeliveryCreatedEvent struct {
 	EventID       uuid.UUID `json:"eventId"`
 	EventType     string    `json:"eventType"`

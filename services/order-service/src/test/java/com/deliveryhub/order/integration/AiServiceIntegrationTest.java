@@ -15,6 +15,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.UUID;
 
 import static org.hamcrest.Matchers.notNullValue;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
@@ -176,8 +177,8 @@ class AiServiceIntegrationTest {
         int highEta = objectMapper.readTree(highTrafficResponse).get("etaMinutes").asInt();
 
         // Note: With MOCK provider, this might not always hold, but we verify both return valid
-        assertThat(lowEta).isGreaterThan(0);
-        assertThat(highEta).isGreaterThan(0);
+        assertTrue(lowEta > 0);
+        assertTrue(highEta > 0);
     }
 
     @Test
@@ -239,8 +240,4 @@ class AiServiceIntegrationTest {
                 .andExpect(status().isUnauthorized());
     }
 
-    // Helper for assertions
-    private static <T> T assertThat(T actual) {
-        return actual;
-    }
 }

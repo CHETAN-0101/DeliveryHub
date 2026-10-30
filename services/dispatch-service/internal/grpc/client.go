@@ -6,7 +6,7 @@ import (
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
-	drivergrpc "github.com/deliveryhub/driver-service/internal/grpc"
+	drivergrpc "github.com/deliveryhub/go-common/drivergrpc"
 )
 
 type DriverServiceClient struct {

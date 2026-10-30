@@ -21,6 +21,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.UUID;
 
 import static org.hamcrest.Matchers.containsString;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
@@ -284,7 +285,7 @@ class ErrorScenariosIntegrationTest {
         UUID deliveryId2 = UUID.fromString(objectMapper.readTree(response2).get("id").asText());
 
         // Should return same delivery
-        assertThat(deliveryId1).isEqualTo(deliveryId2);
+        assertEquals(deliveryId1, deliveryId2);
     }
 
     @Test
@@ -339,8 +340,4 @@ class ErrorScenariosIntegrationTest {
                 .andExpect(status().isBadRequest());
     }
 
-    // Helper
-    private static <T> T assertThat(T actual) {
-        return actual;
-    }
 }

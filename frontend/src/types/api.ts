@@ -135,6 +135,7 @@ export interface RiskAnalysisResponse {
 export interface AssistantRequest {
   question: string;
   context?: Record<string, unknown>;
+  history?: Array<{ role: 'user' | 'assistant'; content: string }>;
 }
 
 export interface AssistantResponse {

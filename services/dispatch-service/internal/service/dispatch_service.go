@@ -100,6 +100,10 @@ func (s *DispatchService) processMessage(ctx context.Context, msg kafkago.Messag
 		log.Printf("Event %s already processed, skipping", event.EventID)
 		return nil
 	}
+	_ = s.redisClient.RecordEvent(ctx, redis.DispatchEventEntry{
+		Type: "DISPATCH_STARTED", DeliveryID: event.AggregateID.String(), Message: "Driver assignment started",
+	})
+	_ = s.redisClient.IncrementStat(ctx, "started")
 
 	// Create saga for this assignment
 	saga := &model.AssignmentSaga{
@@ -210,7 +214,16 @@ func (s *DispatchService) processDeliveryAssignment(ctx context.Context, saga *m
 		},
 	}
 
-	return s.kafkaPublisher.Publish(ctx, event.AggregateID.String(), assignedEvent)
+	if err := s.kafkaPublisher.Publish(ctx, event.AggregateID.String(), assignedEvent); err != nil {
+		return err
+	}
+	_ = s.redisClient.RecordEvent(ctx, redis.DispatchEventEntry{
+		Type: "ASSIGNED", DeliveryID: event.AggregateID.String(), DriverID: assignedDriverID.String(),
+		Message: "Driver assigned successfully",
+	})
+	_ = s.redisClient.IncrementStat(ctx, "assigned")
+	_ = s.redisClient.IncrementStat(ctx, "completed")
+	return nil
 }
 
 func (s *DispatchService) scoreDrivers(ctx context.Context, candidates []*model.Driver, pickupLat, pickupLon float64, packageWeight float64) []model.DriverCandidate {
@@ -223,18 +236,11 @@ func (s *DispatchService) scoreDrivers(ctx context.Context, candidates []*model.
 			continue // Skip drivers too far away
 		}
 
-		// Get driver details for capacity check
-		resp, err := s.driverServiceClient.GetDriver(ctx, driver.Id)
-		if err != nil {
-			log.Printf("Failed to get driver details for %s: %v", driver.Id, err)
-			continue
-		}
-
 		// Calculate current load
-		activeDeliveries, _ := s.getActiveDeliveryCount(ctx, driver.Id)
+		activeDeliveries, _ := s.getActiveDeliveryCount(ctx, driver.ID)
 
 		candidate := model.DriverCandidate{
-			DriverID:    driver.Id,
+			DriverID:    driver.ID,
 			Name:        driver.Name,
 			VehicleType: driver.VehicleType,
 			LicensePlate: driver.LicensePlate,
@@ -304,7 +310,20 @@ func (s *DispatchService) findNearbyDrivers(ctx context.Context, lat, lon float6
 		return []*model.Driver{}, err
 	}
 
-	return drivers, nil
+	result := make([]*model.Driver, 0, len(drivers))
+	for _, driver := range drivers {
+		id, parseErr := uuid.Parse(driver.Id)
+		if parseErr != nil {
+			log.Printf("Skipping driver with invalid ID %q: %v", driver.Id, parseErr)
+			continue
+		}
+		result = append(result, &model.Driver{
+			ID: id, Name: driver.Name, VehicleType: driver.VehicleType,
+			LicensePlate: driver.LicensePlate, CurrentLatitude: driver.CurrentLatitude,
+			CurrentLongitude: driver.CurrentLongitude, Rating: driver.Rating, Status: driver.Status,
+		})
+	}
+	return result, nil
 }
 
 func (s *DispatchService) reserveDriver(ctx context.Context, driverID, deliveryID string) (bool, error) {
@@ -368,6 +387,10 @@ func (s *DispatchService) handleNoDriversAvailable(ctx context.Context, event mo
 	if err != nil {
 		return err
 	}
+	_ = s.redisClient.IncrementStat(ctx, "retried")
+	_ = s.redisClient.RecordEvent(ctx, redis.DispatchEventEntry{
+		Type: "RETRY", DeliveryID: event.AggregateID.String(), Message: "No driver available; retry scheduled",
+	})
 
 	// Calculate exponential backoff
 	delay := time.Duration(float64(BaseRetryDelay) * math.Pow(2, float64(newRetryCount-1)))
@@ -412,6 +435,10 @@ func (s *DispatchService) handleAssignmentFailure(ctx context.Context, saga *mod
 	now := time.Now()
 	saga.CompletedAt = &now
 	s.redisClient.SaveSaga(ctx, saga)
+	_ = s.redisClient.IncrementStat(ctx, "failed")
+	_ = s.redisClient.RecordEvent(ctx, redis.DispatchEventEntry{
+		Type: "SAGA_FAILED", DeliveryID: saga.DeliveryID.String(), Message: err.Error(),
+	})
 	log.Printf("Assignment saga failed for delivery %s: %v", saga.DeliveryID, err)
 }
 

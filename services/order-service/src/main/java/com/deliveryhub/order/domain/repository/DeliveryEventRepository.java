@@ -15,4 +15,6 @@ public interface DeliveryEventRepository extends JpaRepository<DeliveryEvent, UU
     Page<DeliveryEvent> findByDeliveryId(UUID deliveryId, Pageable pageable);
 
     List<DeliveryEvent> findByDeliveryIdOrderByCreatedAtAsc(UUID deliveryId);
+
+    boolean existsByDeliveryIdAndEventType(UUID deliveryId, String eventType);
 }

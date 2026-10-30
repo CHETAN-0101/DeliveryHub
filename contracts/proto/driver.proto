@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package deliveryhub.driver;
 
-option go_package = "github.com/deliveryhub/driver-service/internal/grpc;drivergrpc";
+option go_package = "github.com/deliveryhub/go-common/drivergrpc;drivergrpc";
 
 service DriverService {
   rpc GetDriver(GetDriverRequest) returns (GetDriverResponse);

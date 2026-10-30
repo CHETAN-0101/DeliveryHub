@@ -23,6 +23,8 @@ public interface OutboxEventRepository extends JpaRepository<OutboxEvent, UUID> 
 
     List<OutboxEvent> findByAggregateId(UUID aggregateId);
 
+    boolean existsByAggregateIdAndEventType(UUID aggregateId, String eventType);
+
     List<OutboxEvent> findByCreatedAtBefore(Instant before);
 
     long countByPublishedAtIsNull();

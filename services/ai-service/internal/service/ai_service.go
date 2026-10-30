@@ -45,10 +45,11 @@ func (s *AIService) AnalyzeRisk(ctx context.Context, deliveryID string, driverDi
 	return s.provider.AnalyzeRisk(ctx, req)
 }
 
-func (s *AIService) AskAssistant(ctx context.Context, question string, context map[string]interface{}) (provider.AssistantResponse, error) {
+func (s *AIService) AskAssistant(ctx context.Context, question string, context map[string]interface{}, history []provider.ChatMessage) (provider.AssistantResponse, error) {
 	req := provider.AssistantRequest{
 		Question: question,
 		Context:  context,
+		History:  history,
 	}
 	
 	return s.provider.AskAssistant(ctx, req)

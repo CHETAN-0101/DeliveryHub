@@ -39,6 +39,12 @@ type RiskResponse struct {
 type AssistantRequest struct {
 	Question string
 	Context  map[string]interface{}
+	History  []ChatMessage
+}
+
+type ChatMessage struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
 }
 
 type AssistantResponse struct {

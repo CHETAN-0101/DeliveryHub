@@ -95,10 +95,10 @@ func main() {
 	// Initialize AI provider
 	var aiProvider provider.AIProvider
 	switch cfg.AIProvider {
-	case "EXTERNAL":
+	case "CEREBRAS", "EXTERNAL":
 		if cfg.AIAPIKey != "" && cfg.AIBaseURL != "" {
-			aiProvider = provider.NewExternalAIProvider(cfg.AIAPIKey, cfg.AIBaseURL, cfg.AIModel)
-			log.Println("Using external AI provider")
+			aiProvider = provider.NewExternalAIProvider(cfg.AIAPIKey, cfg.AIBaseURL, cfg.AIModel, cfg.AITemperature, cfg.AIMaxTurns)
+			log.Printf("Using Cerebras AI provider (model %s)", cfg.AIModel)
 		} else {
 			aiProvider = provider.NewMockAIProvider()
 			log.Println("External AI config missing, falling back to mock provider")

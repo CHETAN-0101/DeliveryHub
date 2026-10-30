@@ -17,6 +17,8 @@ type Config struct {
 	AIAPIKey       string
 	AIBaseURL      string
 	AIModel        string
+	AITemperature  float64
+	AIMaxTurns     int
 	KeycloakURL    string
 	KeycloakRealm  string
 	OTELExporter   string
@@ -44,10 +46,12 @@ func Load() *Config {
 		KafkaBrokers:      getEnv("KAFKA_BROKERS", "localhost:9092"),
 		OrderServiceURL:   getEnv("ORDER_SERVICE_URL", "http://localhost:8081"),
 		DriverServiceURL:  getEnv("DRIVER_SERVICE_URL", "http://localhost:8082"),
-		AIProvider:        getEnv("AI_PROVIDER", "MOCK"),
-		AIAPIKey:          getEnv("AI_API_KEY", ""),
-		AIBaseURL:         getEnv("AI_BASE_URL", ""),
-		AIModel:           getEnv("AI_MODEL", "gpt-4"),
+		AIProvider:        getEnv("AI_PROVIDER", "CEREBRAS"),
+		AIAPIKey:          strings.TrimSpace(getEnv("CEREBRAS_API_KEY", getEnv("AI_API_KEY", ""))),
+		AIBaseURL:         getEnv("AI_BASE_URL", "https://api.cerebras.ai/v1"),
+		AIModel:           getEnv("LLM_MODEL", getEnv("AI_MODEL", "gpt-oss-120b")),
+		AITemperature:     getEnvFloat("TEMPERATURE", 0.2),
+		AIMaxTurns:        getEnvInt("MAX_TURNS", 45),
 		KeycloakURL:       getEnv("KEYCLOAK_URL", "http://localhost:8090"),
 		KeycloakRealm:     getEnv("KEYCLOAK_REALM", "deliveryhub"),
 		OTELExporter:      getEnv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4317"),
@@ -76,8 +80,17 @@ func getEnv(key, defaultValue string) string {
 
 func getEnvInt(key string, defaultValue int) int {
 	if value := os.Getenv(key); value != "" {
-		if intVal, err := strconv.Atoi(value); err == nil {
+		if intVal, err := strconv.Atoi(value); err == nil && intVal > 0 {
 			return intVal
+		}
+	}
+	return defaultValue
+}
+
+func getEnvFloat(key string, defaultValue float64) float64 {
+	if value := os.Getenv(key); value != "" {
+		if floatVal, err := strconv.ParseFloat(value, 64); err == nil && floatVal >= 0 && floatVal <= 2 {
+			return floatVal
 		}
 	}
 	return defaultValue

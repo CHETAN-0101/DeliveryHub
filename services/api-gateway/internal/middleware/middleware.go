@@ -178,7 +178,7 @@ func (m *AuthMiddleware) getSigningKey(kid string) (*rsa.PublicKey, error) {
 	defer m.cacheMutex.Unlock()
 
 	// Double-check after acquiring lock
-	key, exists := m.keyCache[kid]
+	key, exists = m.keyCache[kid]
 	if exists && time.Now().Before(m.cacheExpiry) {
 		return key, nil
 	}
@@ -235,42 +235,6 @@ func parseRSAPublicKey(n, e string) (*rsa.PublicKey, error) {
 		N: new(big.Int).SetBytes(nBytes),
 		E: exp,
 	}, nil
-}
-
-func (m *AuthMiddleware) RequireRoles(allowedRoles ...string) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		rolesVal, exists := c.Get(RolesKey)
-		if !exists {
-			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "no roles found"})
-			return
-		}
-
-		userRoles, ok := rolesVal.([]string)
-		if !ok {
-			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "invalid roles format"})
-			return
-		}
-
-		hasRole := false
-		for _, userRole := range userRoles {
-			for _, allowed := range allowedRoles {
-				if userRole == allowed {
-					hasRole = true
-					break
-				}
-			}
-			if hasRole {
-				break
-			}
-		}
-
-		if !hasRole {
-			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "insufficient permissions"})
-			return
-		}
-
-		c.Next()
-	}
 }
 
 func (m *AuthMiddleware) RequireRoles(allowedRoles ...string) gin.HandlerFunc {

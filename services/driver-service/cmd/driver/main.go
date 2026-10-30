@@ -23,13 +23,14 @@ import (
 	"time"
 
 	"github.com/deliveryhub/driver-service/internal/config"
-	"github.com/deliveryhub/driver-service/internal/grpc"
+	driverserver "github.com/deliveryhub/driver-service/internal/grpc"
 	"github.com/deliveryhub/driver-service/internal/handler"
 	"github.com/deliveryhub/driver-service/internal/repository"
 	"github.com/deliveryhub/driver-service/internal/service"
 	"github.com/deliveryhub/driver-service/pkg/kafka"
 	pkgredis "github.com/deliveryhub/driver-service/pkg/redis"
 	"github.com/deliveryhub/go-common/eureka"
+	drivergrpc "github.com/deliveryhub/go-common/drivergrpc"
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/go-redis/redis/v8"
@@ -44,7 +45,7 @@ import (
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.21.0"
 	"google.golang.org/grpc"
-	drivergrpc "github.com/deliveryhub/driver-service/internal/grpc"
+	kafkago "github.com/segmentio/kafka-go"
 )
 
 func main() {
@@ -180,7 +181,7 @@ func main() {
 
 	grpcServer := grpc.NewServer()
 	// Register gRPC services
-	drivergrpc.RegisterDriverServiceServer(grpcServer, grpc.NewDriverServiceServer(driverService))
+	drivergrpc.RegisterDriverServiceServer(grpcServer, driverserver.NewDriverServiceServer(driverService))
 
 	go func() {
 		log.Printf("Starting gRPC server on port %s", cfg.GRPCPort)
@@ -316,7 +317,7 @@ func consumeDispatchEvents(consumer *kafka.Consumer, driverService *service.Driv
 	}
 }
 
-func handleDeliveryCreated(ctx context.Context, msg kafka.Message, driverService *service.DriverService) {
+func handleDeliveryCreated(ctx context.Context, msg kafkago.Message, driverService *service.DriverService) {
 	// Parse delivery created event
 	var event struct {
 		AggregateID string `json:"aggregateId"`
@@ -337,7 +338,7 @@ func handleDeliveryCreated(ctx context.Context, msg kafka.Message, driverService
 	// 3. Update driver status to RESERVED when assigned
 }
 
-func handleDeliveryCancelled(ctx context.Context, msg kafka.Message, driverService *service.DriverService) {
+func handleDeliveryCancelled(ctx context.Context, msg kafkago.Message, driverService *service.DriverService) {
 	// Parse delivery cancelled event
 	var event struct {
 		AggregateID string `json:"aggregateId"`

@@ -16,8 +16,8 @@ import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -38,13 +38,16 @@ import java.util.UUID;
 
 @RestController
 @RequestMapping("/deliveries")
-@RequiredArgsConstructor
-@Slf4j
 @Tag(name = "Deliveries", description = "Delivery management API")
 @SecurityRequirement(name = "bearerAuth")
 public class DeliveryController {
 
+    private static final Logger log = LoggerFactory.getLogger(DeliveryController.class);
     private final DeliveryService deliveryService;
+
+    public DeliveryController(DeliveryService deliveryService) {
+        this.deliveryService = deliveryService;
+    }
 
     @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
     @Operation(summary = "Create a new delivery", description = "Creates a delivery request with idempotency support")
@@ -73,7 +76,7 @@ public class DeliveryController {
                     log.info("Returning cached response for idempotency key: {}", idempotencyKey);
                     return ResponseEntity.status(HttpStatus.OK)
                             .header(HttpHeaders.ETAG, "\"" + idempotencyKey + "\"")
-                            .body(deliveryService.getDelivery(UUID.fromString(existing.get().getResponseBody())));
+                            .body(mapToResponse(deliveryService.getDelivery(UUID.fromString(existing.get().getResponseBody()))));
                 }
                 throw new IdempotencyException("Idempotency key already used with different request");
             }

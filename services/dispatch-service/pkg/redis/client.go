@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
+	"strconv"
 	"time"
 
 	"github.com/deliveryhub/dispatch-service/internal/model"
@@ -16,8 +16,82 @@ type DispatchRedisClient struct {
 	client *redis.Client
 }
 
+type DispatchEventEntry struct {
+	ID        string    `json:"id"`
+	Type      string    `json:"type"`
+	DeliveryID string   `json:"deliveryId"`
+	DriverID  string    `json:"driverId,omitempty"`
+	Message   string    `json:"message"`
+	Timestamp time.Time `json:"timestamp"`
+}
+
+type DispatchStats struct {
+	Started     int     `json:"started"`
+	Assigned    int     `json:"assigned"`
+	Completed   int     `json:"completed"`
+	Failed      int     `json:"failed"`
+	Retried     int     `json:"retried"`
+	SuccessRate float64 `json:"successRate"`
+}
+
 func NewDispatchRedisClient(client *redis.Client) *DispatchRedisClient {
 	return &DispatchRedisClient{client: client}
+}
+
+func (r *DispatchRedisClient) RecordEvent(ctx context.Context, event DispatchEventEntry) error {
+	if event.ID == "" {
+		event.ID = uuid.NewString()
+	}
+	if event.Timestamp.IsZero() {
+		event.Timestamp = time.Now()
+	}
+	data, err := json.Marshal(event)
+	if err != nil {
+		return err
+	}
+	pipe := r.client.TxPipeline()
+	pipe.LPush(ctx, "dispatch:events", data)
+	pipe.LTrim(ctx, "dispatch:events", 0, 199)
+	_, err = pipe.Exec(ctx)
+	return err
+}
+
+func (r *DispatchRedisClient) IncrementStat(ctx context.Context, name string) error {
+	return r.client.HIncrBy(ctx, "dispatch:stats", name, 1).Err()
+}
+
+func (r *DispatchRedisClient) GetRecentEvents(ctx context.Context, limit int) ([]DispatchEventEntry, error) {
+	values, err := r.client.LRange(ctx, "dispatch:events", 0, int64(limit-1)).Result()
+	if err != nil {
+		return nil, err
+	}
+	events := make([]DispatchEventEntry, 0, len(values))
+	for _, value := range values {
+		var event DispatchEventEntry
+		if err := json.Unmarshal([]byte(value), &event); err == nil {
+			events = append(events, event)
+		}
+	}
+	return events, nil
+}
+
+func (r *DispatchRedisClient) GetStats(ctx context.Context) (DispatchStats, error) {
+	values, err := r.client.HGetAll(ctx, "dispatch:stats").Result()
+	if err != nil {
+		return DispatchStats{}, err
+	}
+	read := func(name string) int {
+		value, _ := strconv.Atoi(values[name])
+		return value
+	}
+	stats := DispatchStats{
+		Started: read("started"), Assigned: read("assigned"), Completed: read("completed"),
+		Failed: read("failed"), Retried: read("retried"),
+	}
+	if stats.Started > 0 {
+		stats.SuccessRate = float64(stats.Completed) / float64(stats.Started)
+	}
+	return stats, nil
 }
 
 // Event processing tracking
@@ -104,7 +178,6 @@ func (r *DispatchRedisClient) GetSaga(ctx context.Context, sagaID uuid.UUID) (*m
 }
 
 func (r *DispatchRedisClient) UpdateSagaState(ctx context.Context, sagaID uuid.UUID, state model.SagaState) error {
-	key := fmt.Sprintf("saga:%s", sagaID.String())
 	saga, err := r.GetSaga(ctx, sagaID)
 	if err != nil {
 		return err

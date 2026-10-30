@@ -3,6 +3,7 @@ package handler
 import (
 	"net/http"
 
+	"github.com/deliveryhub/ai-service/internal/provider"
 	"github.com/deliveryhub/ai-service/internal/service"
 	"github.com/gin-gonic/gin"
 )
@@ -33,6 +34,7 @@ type RiskAnalysisRequest struct {
 type AssistantRequest struct {
 	Question string                 `json:"question" binding:"required"`
 	Context  map[string]interface{} `json:"context,omitempty"`
+	History  []provider.ChatMessage `json:"history,omitempty"`
 }
 
 func (h *AIHandler) PredictETA(c *gin.Context) {
@@ -80,7 +82,7 @@ func (h *AIHandler) AskAssistant(c *gin.Context) {
 		return
 	}
 
-	resp, err := h.service.AskAssistant(c.Request.Context(), req.Question, req.Context)
+	resp, err := h.service.AskAssistant(c.Request.Context(), req.Question, req.Context, req.History)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return

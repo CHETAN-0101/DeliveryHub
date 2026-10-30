@@ -528,10 +528,12 @@ services:
     environment:
       - PORT=${AI_SERVICE_PORT:-8085}
       - GRPC_PORT=9095
-      - AI_PROVIDER=${AI_PROVIDER:-MOCK}
-      - AI_API_KEY=${AI_API_KEY:-}
-      - AI_BASE_URL=${AI_BASE_URL:-}
-      - AI_MODEL=${AI_MODEL:-gpt-4}
+      - AI_PROVIDER=${AI_PROVIDER:-CEREBRAS}
+      - CEREBRAS_API_KEY=${CEREBRAS_API_KEY:-}
+      - AI_BASE_URL=${AI_BASE_URL:-https://api.cerebras.ai/v1}
+      - LLM_MODEL=${LLM_MODEL:-gpt-oss-120b}
+      - TEMPERATURE=${TEMPERATURE:-0.2}
+      - MAX_TURNS=${MAX_TURNS:-45}
       - KAFKA_BROKERS=${KAFKA_BROKERS:-kafka:9092}
       - ORDER_SERVICE_URL=http://order-service:8081
       - DRIVER_SERVICE_URL=http://driver-service:8082
