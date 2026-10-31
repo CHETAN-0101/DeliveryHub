@@ -3,7 +3,7 @@ FROM golang:1.22-alpine AS builder
 
 WORKDIR /workspace
 
-RUN apk add --no-cache git make
+RUN apk add --no-cache git
 
 # Copy go-common (local dependency)
 COPY go-common/ ./go-common/
@@ -13,12 +13,14 @@ COPY driver-service/ ./driver-service/
 
 WORKDIR /workspace/driver-service
 
-RUN go mod download || true
-RUN go mod tidy
+RUN go mod download
 
-RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o driver-service ./cmd/driver
+# Build with stripped debug info for smaller binary
+RUN CGO_ENABLED=0 GOOS=linux go build \
+    -ldflags='-w -s -extldflags "-static"' \
+    -a -o driver-service ./cmd/driver
 
-# Runtime stage
+# Runtime stage — minimal Alpine
 FROM alpine:3.19
 
 WORKDIR /app
@@ -30,11 +32,11 @@ RUN addgroup -g 1000 -S appgroup && \
 
 COPY --from=builder /workspace/driver-service/driver-service .
 
-RUN chown -R appuser:appgroup /app
+RUN chown appuser:appgroup /app/driver-service
 
 USER appuser
 
-EXPOSE 8082 9092
+EXPOSE 8082 9096
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
     CMD wget -q --spider http://localhost:8082/health || exit 1

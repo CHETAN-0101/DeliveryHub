@@ -11,8 +11,8 @@ services:
     container_name: deliveryhub-eureka-server
     environment:
       - EUREKA_SERVER_PORT=8761
-      - EUREKA_USER=admin
-      - EUREKA_PASSWORD=admin
+      - EUREKA_USER=${EUREKA_USER:-admin}
+      - EUREKA_PASSWORD=${EUREKA_PASSWORD:-admin}
       - EUREKA_HOSTNAME=eureka-server
       - KEYCLOAK_URL=${KEYCLOAK_URL:-http://keycloak:8080}
       - KEYCLOAK_REALM=${KEYCLOAK_REALM:-deliveryhub}
@@ -34,63 +34,25 @@ services:
     networks:
       - deliveryhub-network
 
-  # PostgreSQL for Order Service
-  postgres-order:
+  # Single Consolidated PostgreSQL — hosts all three service databases
+  postgres:
     image: postgres:16-alpine
-    container_name: deliveryhub-postgres-order
+    container_name: deliveryhub-postgres
     environment:
       POSTGRES_DB: ${ORDER_DB_NAME:-order_db}
-      POSTGRES_USER: ${ORDER_DB_USER:-order_user}
-      POSTGRES_PASSWORD: ${ORDER_DB_PASSWORD:-order_password}
+      POSTGRES_USER: ${DB_USER:-dbuser}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-dbpassword}
     volumes:
-      - postgres_order_data:/var/lib/postgresql/data
-      - ./init-scripts/order-init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - postgres_data:/var/lib/postgresql/data
+      # Init script creates all three databases and runs the SQL files
+      - ./init-scripts/init-all-dbs.sh:/docker-entrypoint-initdb.d/00_init.sh:ro
+      - ./init-scripts/order-init.sql:/docker-entrypoint-initdb.d/order-init.sql:ro
+      - ./init-scripts/driver-init.sql:/docker-entrypoint-initdb.d/driver-init.sql:ro
+      - ./init-scripts/notification-init.sql:/docker-entrypoint-initdb.d/notification-init.sql:ro
     ports:
       - "5432:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${ORDER_DB_USER:-order_user} -d ${ORDER_DB_NAME:-order_db}"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    networks:
-      - deliveryhub-network
-
-  # PostgreSQL for Driver Service
-  postgres-driver:
-    image: postgres:16-alpine
-    container_name: deliveryhub-postgres-driver
-    environment:
-      POSTGRES_DB: ${DRIVER_DB_NAME:-driver_db}
-      POSTGRES_USER: ${DRIVER_DB_USER:-driver_user}
-      POSTGRES_PASSWORD: ${DRIVER_DB_PASSWORD:-driver_password}
-    volumes:
-      - postgres_driver_data:/var/lib/postgresql/data
-      - ./init-scripts/driver-init.sql:/docker-entrypoint-initdb.d/init.sql:ro
-    ports:
-      - "5433:5432"
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DRIVER_DB_USER:-driver_user} -d ${DRIVER_DB_NAME:-driver_db}"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    networks:
-      - deliveryhub-network
-
-  # PostgreSQL for Notification Service
-  postgres-notification:
-    image: postgres:16-alpine
-    container_name: deliveryhub-postgres-notification
-    environment:
-      POSTGRES_DB: ${NOTIFICATION_DB_NAME:-notification_db}
-      POSTGRES_USER: ${NOTIFICATION_DB_USER:-notification_user}
-      POSTGRES_PASSWORD: ${NOTIFICATION_DB_PASSWORD:-notification_password}
-    volumes:
-      - postgres_notification_data:/var/lib/postgresql/data
-      - ./init-scripts/notification-init.sql:/docker-entrypoint-initdb.d/init.sql:ro
-    ports:
-      - "5434:5432"
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${NOTIFICATION_DB_USER:-notification_user} -d ${NOTIFICATION_DB_NAME:-notification_db}"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-dbuser} -d ${ORDER_DB_NAME:-order_db}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -267,11 +229,10 @@ services:
       - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4317}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - LOG_FORMAT=${LOG_FORMAT:-json}
-      # Eureka Configuration
       - EUREKA_ENABLED=true
       - EUREKA_URLS=http://admin:admin@eureka-server:8761/eureka
-      - EUREKA_USERNAME=admin
-      - EUREKA_PASSWORD=admin
+      - EUREKA_USERNAME=${EUREKA_USER:-admin}
+      - EUREKA_PASSWORD=${EUREKA_PASSWORD:-admin}
       - APP_NAME=api-gateway
       - INSTANCE_ID=api-gateway:8080
       - HOSTNAME=api-gateway
@@ -311,9 +272,9 @@ services:
     container_name: deliveryhub-order-service
     environment:
       - SERVER_PORT=${ORDER_SERVICE_PORT:-8081}
-      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres-order:5432/${ORDER_DB_NAME:-order_db}
-      - SPRING_DATASOURCE_USERNAME=${ORDER_DB_USER:-order_user}
-      - SPRING_DATASOURCE_PASSWORD=${ORDER_DB_PASSWORD:-order_password}
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/${ORDER_DB_NAME:-order_db}
+      - SPRING_DATASOURCE_USERNAME=${DB_USER:-dbuser}
+      - SPRING_DATASOURCE_PASSWORD=${DB_PASSWORD:-dbpassword}
       - SPRING_KAFKA_BOOTSTRAP_SERVERS=${KAFKA_BROKERS:-kafka:9092}
       - SPRING_KAFKA_CONSUMER_GROUP_ID=${KAFKA_CONSUMER_GROUP_ORDER:-order-service-group}
       - KEYCLOAK_URL=${KEYCLOAK_URL:-http://keycloak:8080}
@@ -321,19 +282,18 @@ services:
       - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4317}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - LOG_FORMAT=${LOG_FORMAT:-json}
-      # Eureka Configuration
       - EUREKA_ENABLED=true
       - EUREKA_HOST=eureka-server
       - EUREKA_PORT=8761
-      - EUREKA_USER=admin
-      - EUREKA_PASSWORD=admin
+      - EUREKA_USER=${EUREKA_USER:-admin}
+      - EUREKA_PASSWORD=${EUREKA_PASSWORD:-admin}
       - HOSTNAME=order-service
     ports:
       - "8081:8081"
     depends_on:
       eureka-server:
         condition: service_healthy
-      postgres-order:
+      postgres:
         condition: service_healthy
       kafka:
         condition: service_healthy
@@ -357,12 +317,12 @@ services:
     container_name: deliveryhub-driver-service
     environment:
       - PORT=${DRIVER_SERVICE_PORT:-8082}
-      - GRPC_PORT=9092
-      - DB_HOST=${DRIVER_DB_HOST:-postgres-driver}
-      - DB_PORT=${DRIVER_DB_PORT:-5432}
+      - GRPC_PORT=9096
+      - DB_HOST=postgres
+      - DB_PORT=5432
       - DB_NAME=${DRIVER_DB_NAME:-driver_db}
-      - DB_USER=${DRIVER_DB_USER:-driver_user}
-      - DB_PASSWORD=${DRIVER_DB_PASSWORD:-driver_password}
+      - DB_USER=${DB_USER:-dbuser}
+      - DB_PASSWORD=${DB_PASSWORD:-dbpassword}
       - REDIS_HOST=${REDIS_HOST:-redis}
       - REDIS_PORT=${REDIS_PORT:-6379}
       - REDIS_PASSWORD=${REDIS_PASSWORD:-}
@@ -373,23 +333,22 @@ services:
       - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4317}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - LOG_FORMAT=${LOG_FORMAT:-json}
-      # Eureka Configuration
       - EUREKA_ENABLED=true
       - EUREKA_URLS=http://admin:admin@eureka-server:8761/eureka
-      - EUREKA_USERNAME=admin
-      - EUREKA_PASSWORD=admin
+      - EUREKA_USERNAME=${EUREKA_USER:-admin}
+      - EUREKA_PASSWORD=${EUREKA_PASSWORD:-admin}
       - APP_NAME=driver-service
       - INSTANCE_ID=driver-service:8082
       - HOSTNAME=driver-service
       - PORT_INT=8082
-      - GRPC_PORT_INT=9092
+      - GRPC_PORT_INT=9096
     ports:
       - "8082:8082"
-      - "19092:9092"
+      - "9096:9096"
     depends_on:
       eureka-server:
         condition: service_healthy
-      postgres-driver:
+      postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
@@ -415,32 +374,31 @@ services:
     container_name: deliveryhub-dispatch-service
     environment:
       - PORT=${DISPATCH_SERVICE_PORT:-8083}
-      - GRPC_PORT=9093
+      - GRPC_PORT=9097
       - REDIS_HOST=${REDIS_HOST:-redis}
       - REDIS_PORT=${REDIS_PORT:-6379}
       - REDIS_PASSWORD=${REDIS_PASSWORD:-}
       - KAFKA_BROKERS=${KAFKA_BROKERS:-kafka:9092}
       - KAFKA_CONSUMER_GROUP=${KAFKA_CONSUMER_GROUP_DISPATCH:-dispatch-service-group}
-      - DRIVER_SERVICE_GRPC_ADDR=driver-service:9092
+      - DRIVER_SERVICE_GRPC_ADDR=driver-service:9096
       - ORDER_SERVICE_URL=http://order-service:8081
       - KEYCLOAK_URL=${KEYCLOAK_URL:-http://keycloak:8080}
       - KEYCLOAK_REALM=${KEYCLOAK_REALM:-deliveryhub}
       - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4317}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - LOG_FORMAT=${LOG_FORMAT:-json}
-      # Eureka Configuration
       - EUREKA_ENABLED=true
       - EUREKA_URLS=http://admin:admin@eureka-server:8761/eureka
-      - EUREKA_USERNAME=admin
-      - EUREKA_PASSWORD=admin
+      - EUREKA_USERNAME=${EUREKA_USER:-admin}
+      - EUREKA_PASSWORD=${EUREKA_PASSWORD:-admin}
       - APP_NAME=dispatch-service
       - INSTANCE_ID=dispatch-service:8083
       - HOSTNAME=dispatch-service
       - PORT_INT=8083
-      - GRPC_PORT_INT=9093
+      - GRPC_PORT_INT=9097
     ports:
       - "8083:8083"
-      - "9093:9093"
+      - "9097:9097"
     depends_on:
       eureka-server:
         condition: service_healthy
@@ -472,9 +430,9 @@ services:
     container_name: deliveryhub-notification-service
     environment:
       - SERVER_PORT=${NOTIFICATION_SERVICE_PORT:-8084}
-      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres-notification:5432/${NOTIFICATION_DB_NAME:-notification_db}
-      - SPRING_DATASOURCE_USERNAME=${NOTIFICATION_DB_USER:-notification_user}
-      - SPRING_DATASOURCE_PASSWORD=${NOTIFICATION_DB_PASSWORD:-notification_password}
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/${NOTIFICATION_DB_NAME:-notification_db}
+      - SPRING_DATASOURCE_USERNAME=${DB_USER:-dbuser}
+      - SPRING_DATASOURCE_PASSWORD=${DB_PASSWORD:-dbpassword}
       - SPRING_KAFKA_BOOTSTRAP_SERVERS=${KAFKA_BROKERS:-kafka:9092}
       - SPRING_KAFKA_CONSUMER_GROUP_ID=${KAFKA_CONSUMER_GROUP_NOTIFICATION:-notification-service-group}
       - KEYCLOAK_URL=${KEYCLOAK_URL:-http://keycloak:8080}
@@ -482,12 +440,11 @@ services:
       - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4317}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - LOG_FORMAT=${LOG_FORMAT:-json}
-      # Eureka Configuration
       - EUREKA_ENABLED=true
       - EUREKA_HOST=eureka-server
       - EUREKA_PORT=8761
-      - EUREKA_USER=admin
-      - EUREKA_PASSWORD=admin
+      - EUREKA_USER=${EUREKA_USER:-admin}
+      - EUREKA_PASSWORD=${EUREKA_PASSWORD:-admin}
       - HOSTNAME=notification-service
       # Notification Providers
       - SENDGRID_API_KEY=${SENDGRID_API_KEY:-}
@@ -503,7 +460,7 @@ services:
     depends_on:
       eureka-server:
         condition: service_healthy
-      postgres-notification:
+      postgres:
         condition: service_healthy
       kafka:
         condition: service_healthy
@@ -527,7 +484,7 @@ services:
     container_name: deliveryhub-ai-service
     environment:
       - PORT=${AI_SERVICE_PORT:-8085}
-      - GRPC_PORT=9095
+      - GRPC_PORT=9098
       - AI_PROVIDER=${AI_PROVIDER:-CEREBRAS}
       - CEREBRAS_API_KEY=${CEREBRAS_API_KEY:-}
       - AI_BASE_URL=${AI_BASE_URL:-https://api.cerebras.ai/v1}
@@ -542,19 +499,18 @@ services:
       - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4317}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - LOG_FORMAT=${LOG_FORMAT:-json}
-      # Eureka Configuration
       - EUREKA_ENABLED=true
       - EUREKA_URLS=http://admin:admin@eureka-server:8761/eureka
-      - EUREKA_USERNAME=admin
-      - EUREKA_PASSWORD=admin
+      - EUREKA_USERNAME=${EUREKA_USER:-admin}
+      - EUREKA_PASSWORD=${EUREKA_PASSWORD:-admin}
       - APP_NAME=ai-service
       - INSTANCE_ID=ai-service:8085
       - HOSTNAME=ai-service
       - PORT_INT=8085
-      - GRPC_PORT_INT=9095
+      - GRPC_PORT_INT=9098
     ports:
       - "8085:8085"
-      - "9095:9095"
+      - "9098:9098"
     depends_on:
       eureka-server:
         condition: service_healthy
@@ -580,9 +536,7 @@ services:
 # Volumes
 # ===========================================
 volumes:
-  postgres_order_data:
-  postgres_driver_data:
-  postgres_notification_data:
+  postgres_data:      # Single consolidated PostgreSQL volume
   redis_data:
   kafka_data:
   jaeger_data:

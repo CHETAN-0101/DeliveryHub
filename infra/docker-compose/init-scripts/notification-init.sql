@@ -29,15 +29,18 @@ CREATE INDEX IF NOT EXISTS idx_notifications_status ON notifications(status);
 CREATE INDEX IF NOT EXISTS idx_notifications_created_at ON notifications(created_at DESC);
 
 -- Create notification_templates table
+-- Unique constraint is (name, channel) because the same logical template name
+-- can exist for different delivery channels (EMAIL, SMS, PUSH)
 CREATE TABLE IF NOT EXISTS notification_templates (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    name VARCHAR(100) NOT NULL UNIQUE,
+    name VARCHAR(100) NOT NULL,
     channel VARCHAR(20) NOT NULL,
     subject_template VARCHAR(500),
     body_template TEXT NOT NULL,
     variables JSONB, -- JSON schema for required variables
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT uq_template_name_channel UNIQUE (name, channel)
 );
 
 -- Function to update updated_at
@@ -102,4 +105,4 @@ VALUES
      '{driverName} is on the way to pick up your package',
      '{"driverName": "string", "deliveryId": "string"}')
 
-ON CONFLICT (name) DO NOTHING;
+ON CONFLICT ON CONSTRAINT uq_template_name_channel DO NOTHING;

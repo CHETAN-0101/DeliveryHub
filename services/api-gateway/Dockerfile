@@ -3,7 +3,8 @@ FROM golang:1.22-alpine AS builder
 
 WORKDIR /workspace
 
-RUN apk add --no-cache git make
+# Install only what's needed (no make)
+RUN apk add --no-cache git
 
 # Copy go-common (local dependency)
 COPY go-common/ ./go-common/
@@ -13,13 +14,15 @@ COPY api-gateway/ ./api-gateway/
 
 WORKDIR /workspace/api-gateway
 
-# Download deps (go-common is resolved via replace directive pointing to ../go-common)
-RUN go mod download || true
-RUN go mod tidy
+# Download dependencies (go-common resolved via replace directive pointing to ../go-common)
+RUN go mod download
 
-RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o api-gateway ./cmd/gateway
+# Build with stripped debug info for smaller binary
+RUN CGO_ENABLED=0 GOOS=linux go build \
+    -ldflags='-w -s -extldflags "-static"' \
+    -a -o api-gateway ./cmd/gateway
 
-# Runtime stage
+# Runtime stage — minimal Alpine
 FROM alpine:3.19
 
 WORKDIR /app
@@ -31,7 +34,7 @@ RUN addgroup -g 1000 -S appgroup && \
 
 COPY --from=builder /workspace/api-gateway/api-gateway .
 
-RUN chown -R appuser:appgroup /app
+RUN chown appuser:appgroup /app/api-gateway
 
 USER appuser
 
